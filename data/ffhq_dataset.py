@@ -4,9 +4,6 @@ import numpy as np
 from PIL import Image
 import imgaug as ia
 import imgaug.augmenters as iaa
-
-import torch
-from torch.utils.data import Dataset
 from torchvision.transforms import transforms
 
 from data.base_dataset import BaseDataset
