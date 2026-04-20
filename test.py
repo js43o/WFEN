@@ -7,6 +7,7 @@ from PIL import Image
 from tqdm import tqdm
 import torch
 
+
 if __name__ == '__main__':
     opt = TestOptions().parse()  # get test options
     opt.num_threads = 0   # test code only supports num_threads = 1
@@ -30,20 +31,27 @@ if __name__ == '__main__':
     os.makedirs(save_dir, exist_ok=True)
 
     print('creating result directory', save_dir)
+    
+    os.makedirs(os.path.join(save_dir, 'lr'), exist_ok=True)
+    os.makedirs(os.path.join(save_dir, 'pred'), exist_ok=True)
+    os.makedirs(os.path.join(save_dir, 'hr'), exist_ok=True)
 
     network = model.netG
     network.eval()
 
     for i, data in tqdm(enumerate(dataset), total=len(dataset)):
-        inp = data['LR']
+        inp, hr = data['LR'], data['HR']
         with torch.no_grad():
-            output_SR = network(inp)
-        img_path = data['LR_paths']     # get image paths
-        output_sr_img = utils.tensor_to_img(output_SR, normal=True)
+            output = network(inp)
+        
+        sr_img = utils.tensor_to_img(output, normal=True)
+        lr_img = utils.tensor_to_img(inp, normal=True)
+        hr_img = utils.tensor_to_img(hr, normal=True)
 
-        save_path = os.path.join(save_dir, img_path[0].split('/')[-1]) 
-        save_img = Image.fromarray(output_sr_img)
-        save_img.save(save_path)
-
-
-       
+        img_path = data['HR_paths']     # get image paths
+        filename = img_path[0].split('/')[-1]
+        
+        Image.fromarray(lr_img).save(os.path.join(save_dir, 'lr', filename))
+        Image.fromarray(sr_img).save(os.path.join(save_dir, 'pred', filename))
+        Image.fromarray(hr_img).save(os.path.join(save_dir, 'hr', filename))
+        

@@ -35,9 +35,18 @@ class BlindFFHQDataset(BaseDataset):
         
 
     def get_img_names(self,):
-        img_names = [x for x in glob(os.path.join(self.img_dir, '*/**.png'))] 
+        img_names = []
+        for ext in ['png', 'jpg', 'jpeg']:
+            img_names.extend([x for x in glob(os.path.join(self.img_dir, '*.' + ext))])
+            img_names.extend([x for x in glob(os.path.join(self.img_dir, '**/*.' + ext))])
+            
+        img_names.sort()
+        
         if self.shuffle:
             random.shuffle(img_names)
+            
+        print("# The number of images:", len(img_names))
+            
         return img_names
 
     def __getitem__(self, index):
@@ -45,8 +54,8 @@ class BlindFFHQDataset(BaseDataset):
         img_path = os.path.join(self.img_dir, self.img_names[index])
         hr_img = cv2.imread(img_path)
         hr_img = cv2.resize(
-            hr_img, dsize=(self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR
-        )
+            hr_img, dsize=(512, 512), interpolation=cv2.INTER_LINEAR
+        )   # resize for degradation
         hr_img = hr_img.astype(np.float32) / 255.0
 
         # ------------------------ generate lq image ------------------------ #
@@ -76,6 +85,7 @@ class BlindFFHQDataset(BaseDataset):
 
         # resize to original size
         lr_img = cv2.resize(lr_img, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
+        hr_img = cv2.resize(hr_img, (self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR)
 
         # BGR to RGB, HWC to CHW, numpy to tensor
         hr_img, lr_img = img2tensor([hr_img, lr_img], bgr2rgb=True, float32=True)

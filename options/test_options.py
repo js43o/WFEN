@@ -23,5 +23,15 @@ class TestOptions(BaseOptions):
         parser.set_defaults(model='test')
         # To avoid cropping, the load_size should be the same as crop_size
         parser.set_defaults(load_size=parser.get_default('crop_size'))
+        
+        parser.add_argument('--blur_kernel_size', nargs='+', type=int, default=[19, 20], help='blur kernel size')
+        parser.add_argument('--kernel_list', nargs='+', type=str, default=['iso', 'aniso'], help='kernel list')
+        parser.add_argument('--kernel_prob', nargs='+', type=float, default=[0.5, 0.5], help='kernel probability')
+        parser.add_argument('--blur_sigma', nargs='+', type=float, default=[0.1, 10], help='blur sigma')
+        parser.add_argument('--downsample_range', nargs='+', type=float, default=[0.8, 8], help='downsample range')
+        parser.add_argument('--noise_range', nargs='+', type=int, default=[0, 20], help='noise range')
+        parser.add_argument('--jpeg_range', nargs='+', type=int, default=[60, 100], help='jpeg range')
+
+        
         self.isTrain = False
         return parser
