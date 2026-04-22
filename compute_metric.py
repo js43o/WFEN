@@ -5,8 +5,6 @@ from torch.nn import functional as F
 from torchvision.transforms.functional import to_tensor
 from pyiqa import create_metric
 import argparse
-import shutil
-import random
 import face_alignment
 import numpy as np
 
@@ -17,12 +15,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/blind_ffhq_custom-aligned_128/lfw_custom-aligned/pred",
+    default="results/wfenhd_no_wavelet_blind_ffhq_custom-aligned_128/lfw_custom-aligned/pred",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="results/blind_ffhq_custom-aligned_128/lfw_custom-aligned/hr",
+    default="results/wfenhd_no_wavelet_blind_ffhq_custom-aligned_128/lfw_custom-aligned/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"

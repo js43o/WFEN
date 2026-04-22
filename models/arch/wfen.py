@@ -414,9 +414,12 @@ class WFEN_no_Wavelet(nn.Module):
         super(WFEN_no_Wavelet, self).__init__()
         self.first_conv = nn.Conv2d(inchannel, min_ch, kernel_size=3, padding=1)
 
-        self.Downsample1 = nn.Conv2d(min_ch, min_ch*2, kernel_size=2, stride=2, padding=0)
-        self.Downsample2 = nn.Conv2d(min_ch*2, min_ch*2*2, kernel_size=2, stride=2, padding=0)
-        self.Downsample3 = nn.Conv2d(min_ch*2*2, min_ch*2*2, kernel_size=2, stride=2, padding=0)
+        self.Downsample1 = nn.Sequential(nn.Conv2d(min_ch, min_ch//2, kernel_size=3, stride=1, padding=1, bias=False),
+                                  nn.PixelUnshuffle(2))
+        self.Downsample2 = nn.Sequential(nn.Conv2d(min_ch*2, min_ch*2//2, kernel_size=3, stride=1, padding=1, bias=False),
+                                  nn.PixelUnshuffle(2))
+        self.Downsample3 = nn.Sequential(nn.Conv2d(min_ch*2*2, min_ch*2//2, kernel_size=3, stride=1, padding=1, bias=False),
+                                  nn.PixelUnshuffle(2))
 
         self.TransformerDown1 = nn.Sequential(
             FDT(inp_channels=min_ch, window_sizes=8, shifts=0, num_heads=4),

@@ -32,6 +32,7 @@ class TestOptions(BaseOptions):
         parser.add_argument('--noise_range', nargs='+', type=int, default=[0, 20], help='noise range')
         parser.add_argument('--jpeg_range', nargs='+', type=int, default=[60, 100], help='jpeg range')
 
+        parser.add_argument('--no_wavelet', action='store_true', help='disable wavelet transform')
         
         self.isTrain = False
         return parser
