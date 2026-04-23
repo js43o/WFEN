@@ -43,7 +43,9 @@ if __name__ == '__main__':
         inp, hr = data['LR'], data['HR']
         with torch.no_grad():
             output = network(inp)
-        
+            if isinstance(output, tuple):
+                output = output[0]  # except commit_loss
+                        
         sr_img = utils.tensor_to_img(output, normal=True)
         lr_img = utils.tensor_to_img(inp, normal=True)
         hr_img = utils.tensor_to_img(hr, normal=True)

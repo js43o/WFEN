@@ -6,7 +6,7 @@ from models import loss
 from models import networks
 from .base_model import BaseModel
 from utils import utils
-from models.arch.wfen import WFEN, WFEN_no_Wavelet
+from models.arch.wfen import WFEN
 
 class WFENModel(BaseModel):
 
@@ -18,7 +18,7 @@ class WFENModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
 
-        self.netG = WFEN() if not opt.no_wavelet else WFEN_no_Wavelet()
+        self.netG = WFEN()
         self.netG = networks.define_network(opt, self.netG)
 
         self.model_names = ['G']

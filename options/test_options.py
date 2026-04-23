@@ -33,6 +33,8 @@ class TestOptions(BaseOptions):
         parser.add_argument('--jpeg_range', nargs='+', type=int, default=[60, 100], help='jpeg range')
 
         parser.add_argument('--no_wavelet', action='store_true', help='disable wavelet transform')
+        parser.add_argument('--is_pretrain', action='store_true', help='is pretrain mode')
         
         self.isTrain = False
+        
         return parser
