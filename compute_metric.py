@@ -15,12 +15,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="/4tb/python/Suprema_2026/Restormer/lfw_custom-aligned_validation/pred",
+    default="results/4-1_feature_level_vq/lfw_custom-aligned/pred",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="/4tb/python/Suprema_2026/Restormer/lfw_custom-aligned_validation/gt",
+    default="results/4-1_feature_level_vq/lfw_custom-aligned/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"

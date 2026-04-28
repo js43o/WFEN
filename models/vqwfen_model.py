@@ -6,7 +6,7 @@ from models import loss
 from models import networks
 from .base_model import BaseModel
 from utils import utils
-from models.arch.wfen import VQWFEN
+from models.arch.vqwfen import VQWFEN
 
 
 class VQWFENModel(BaseModel):

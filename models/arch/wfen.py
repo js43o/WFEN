@@ -309,22 +309,23 @@ class HaarWavelet(nn.Module):
         self.haar_weights[3, 0, 1, 0] = -1  # XO
         self.haar_weights[3, 0, 0, 1] = -1  # OX    (대각선)
 
+        # 입력 채널 수만큼 복사(depth-wise conv 방식처럼 따로따로 계산)
         self.haar_weights = torch.cat(
             [self.haar_weights] * self.in_channels, 0
-        )  # 입력 채널 수만큼 복사(depth-wise conv 방식으로 따로따로 계산)
+        )
         self.haar_weights = nn.Parameter(self.haar_weights)
         self.haar_weights.requires_grad = grad
 
     def forward(self, x, rev=False):  # rev는 inverse transform 여부
         if not rev:
-            # 2*2 커널 + stride=2 -> 입력을 겹치지 않는 2*2 블록으로 쪼갬
-            # 각 블록마다 4개의 필터를 적용하여 4개의 값 생성 -> (B, C*4, H/2, H/2)
+            # kernel_size=2 & stride=2: 입력을 겹치지 않는 2*2 블록으로 쪼갬
+            # groups=self.in_channels: 입력 텐서의 각 채널마다 4개의 필터를 적용하여 4개의 값 생성(B, C*4, H/2, H/2)
             out = (
                 F.conv2d(
                     x, self.haar_weights, bias=None, stride=2, groups=self.in_channels
                 )
                 / 4.0
-            )  # <- 4.0은 그냥 평균 맞추는 스케일러
+            )  # 4.0은 그냥 평균 맞추는 스케일러
 
             out = out.reshape(
                 [x.shape[0], self.in_channels, 4, x.shape[2] // 2, x.shape[3] // 2]
@@ -352,9 +353,10 @@ class HaarWavelet(nn.Module):
             )  # 채널 4개를 다시 하나로, 공간 해상도는 2배로 늘어남
 
 
-class WFU(nn.Module):
-    # Wavelet Feature Upgrade (업샘플링)
-    # 요약하면, 현재 디코더에서 처리 중인 피쳐(small)와 인코더에서 건너온 피쳐(big)를 웨이블릿 변환으로 합침(중간에 HF/LF 따로따로 개선도 좀 하고)
+class WFU(nn.Module):   # Wavelet Feature Upgrade (Upsample)
+    # 현재 디코더에서 처리 중인 특징(small)과
+    # 인코더에서 건너온 특징(big)을 웨이블릿 역변환으로 병합
+    # (중간에 HF/LF 각자 강화 과정도 거치고)
     def __init__(self, dim_big, dim_small):
         super(WFU, self).__init__()
         self.dim = dim_big
@@ -386,7 +388,7 @@ class WFU(nn.Module):
         hvd = self.RB(h + v + d)  # HF들은 그냥 더해서 residual block에 제공
         a_ = self.channel_tranformation(
             torch.cat([x_small, a], dim=1)
-        )  # LF들끼리는 concat해서 enhancing
+        )  # LF끼리는 concat해서 enhancing
         out = self.InverseHaarWavelet(
             torch.cat([hvd, a_], dim=1), rev=True
         )  # 결과 HF랑 LF랑 다시 하나로 묶어서 역변환
@@ -394,10 +396,9 @@ class WFU(nn.Module):
         return out
 
 
-class WFD(nn.Module):
-    # Wavelet Feature Downsample (WFD)
-    # 피쳐 하나를 LF 1개랑 HF 3개로 쪼개서(해상도 절반) 각각 반환
-    # 논문 그림에 나온 HR 피쳐들의 residual은 여기 바깥에서 진행함(RB 블록들)
+class WFD(nn.Module):   # Wavelet Feature Downsample
+    # 특징 하나를 LF 1개랑 HF 3개로 쪼개서(해상도 절반) 각각 반환
+    # 논문 그림에 나온 HR 요소들의 residual은 여기 바깥에서 진행함(RB 블록들)
     def __init__(self, dim_in, dim, need=False):
         super(WFD, self).__init__()
         self.need = need
@@ -435,8 +436,8 @@ class WFEN(nn.Module):
         self.first_conv = nn.Conv2d(inchannel, min_ch, kernel_size=3, padding=1)
 
         self.HaarDownsample1 = WFD(min_ch, min_ch * 2, True)
-        self.HaarDownsample2 = WFD(min_ch * 2, min_ch * 2 * 2, True)
-        self.HaarDownsample3 = WFD(min_ch * 2 * 2, min_ch * 2 * 2, True)
+        self.HaarDownsample2 = WFD(min_ch * 2, min_ch * 4, True)
+        self.HaarDownsample3 = WFD(min_ch * 4, min_ch * 4, True)
 
         self.TransformerDown1 = nn.Sequential(
             FDT(inp_channels=min_ch, window_sizes=8, shifts=0, num_heads=4),
@@ -446,7 +447,7 @@ class WFEN(nn.Module):
             FDT(inp_channels=min_ch * 2, window_sizes=4, shifts=1, num_heads=4),
         )
         self.TransformerDown3 = nn.Sequential(
-            FDT(inp_channels=min_ch * 2 * 2, window_sizes=2, shifts=0, num_heads=8),
+            FDT(inp_channels=min_ch * 4, window_sizes=2, shifts=0, num_heads=8),
         )
 
         self.RB1 = nn.Sequential(
@@ -456,51 +457,51 @@ class WFEN(nn.Module):
         )
         self.RB2 = nn.Sequential(
             nn.Conv2d(
-                min_ch * 2 * 2, min_ch * 2 * 2, kernel_size=1, padding=0, groups=1
+                min_ch * 4, min_ch * 4, kernel_size=1, padding=0, groups=1
             ),
             nn.ReLU(),
             nn.Conv2d(
-                min_ch * 2 * 2, min_ch * 2 * 2, kernel_size=1, padding=0, groups=1
+                min_ch * 4, min_ch * 4, kernel_size=1, padding=0, groups=1
             ),
         )
         self.RB3 = nn.Sequential(
             nn.Conv2d(
-                min_ch * 2 * 2, min_ch * 2 * 2, kernel_size=1, padding=0, groups=1
+                min_ch * 4, min_ch * 4, kernel_size=1, padding=0, groups=1
             ),
             nn.ReLU(),
             nn.Conv2d(
-                min_ch * 2 * 2, min_ch * 2 * 2, kernel_size=1, padding=0, groups=1
+                min_ch * 4, min_ch * 4, kernel_size=1, padding=0, groups=1
             ),
         )
 
         self.Transformer0 = FDT(
-            inp_channels=min_ch * 2 * 2, window_sizes=1, shifts=0, num_heads=8
+            inp_channels=min_ch * 4, window_sizes=1, shifts=0, num_heads=8
         )
         Transformer = []
         for i in range(res_depth - 1):
             (
                 Transformer.append(
                     FDT(
-                        inp_channels=min_ch * 2 * 2,
+                        inp_channels=min_ch * 4,
                         window_sizes=1,
                         shifts=1,
-                        num_heads=8,
+                        num_heads=8
                     ),
                 )
                 if i % 2 == 0
                 else Transformer.append(
                     FDT(
-                        inp_channels=min_ch * 2 * 2,
+                        inp_channels=min_ch * 4,
                         window_sizes=1,
                         shifts=0,
-                        num_heads=8,
+                        num_heads=8
                     )
                 )
             )
         self.Transformer = nn.Sequential(*Transformer)
 
         self.TransformerUp1 = nn.Sequential(
-            FDT(inp_channels=min_ch * 2 * 2, window_sizes=8, shifts=1, num_heads=8),
+            FDT(inp_channels=min_ch * 4, window_sizes=8, shifts=1, num_heads=8),
         )
         self.TransformerUp2 = nn.Sequential(
             FDT(inp_channels=min_ch * 2, window_sizes=4, shifts=0, num_heads=4),
@@ -510,8 +511,8 @@ class WFEN(nn.Module):
             FDT(inp_channels=min_ch, window_sizes=2, shifts=0, num_heads=4),
         )
 
-        self.HaarFeatureFusion1 = WFU(min_ch * 2 * 2, min_ch * 2 * 2)
-        self.HaarFeatureFusion2 = WFU(min_ch * 2, min_ch * 2 * 2)
+        self.HaarFeatureFusion1 = WFU(min_ch * 4, min_ch * 4)
+        self.HaarFeatureFusion2 = WFU(min_ch * 2, min_ch * 4)
         self.HaarFeatureFusion3 = WFU(min_ch, min_ch * 2)
 
         self.out_conv = nn.Conv2d(min_ch, inchannel, kernel_size=3, padding=1)
@@ -716,188 +717,3 @@ class WFEN_no_Wavelet(nn.Module):
         out_img = self.out_conv(x_3)  # 마무리 conv
 
         return out_img
-
-
-###########################################################
-
-
-class VQWFEN(nn.Module):
-    def __init__(
-        self,
-        inchannel=3,
-        min_ch=40,
-        res_depth=6,
-        is_pretrain=False,
-    ):
-        print("🔥 VQ-WFEN / is_pretrain =", is_pretrain)
-        super(VQWFEN, self).__init__()
-        
-        self.is_pretrain = is_pretrain
-        
-        self.first_conv = nn.Conv2d(inchannel, min_ch, kernel_size=3, padding=1)
-
-        self.Downsample1 = nn.Sequential(
-            nn.Conv2d(
-                min_ch, min_ch // 2, kernel_size=3, stride=1, padding=1, bias=False
-            ),
-            nn.PixelUnshuffle(2),
-        )
-        self.Downsample2 = nn.Sequential(
-            nn.Conv2d(
-                min_ch * 2,
-                min_ch * 2 // 2,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
-            nn.PixelUnshuffle(2),
-        )
-        self.Downsample3 = nn.Sequential(
-            nn.Conv2d(
-                min_ch * 2 * 2,
-                min_ch * 2 // 2,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
-            nn.PixelUnshuffle(2),
-        )
-
-        self.TransformerDown1 = nn.Sequential(
-            FDT(inp_channels=min_ch, window_sizes=8, shifts=0, num_heads=4),
-            FDT(inp_channels=min_ch, window_sizes=8, shifts=0, num_heads=4),
-        )
-        self.TransformerDown2 = nn.Sequential(
-            FDT(inp_channels=min_ch * 2, window_sizes=4, shifts=1, num_heads=4),
-        )
-        self.TransformerDown3 = nn.Sequential(
-            FDT(inp_channels=min_ch * 2 * 2, window_sizes=2, shifts=0, num_heads=8),
-        )
-
-        self.Transformer0 = FDT(
-            inp_channels=min_ch * 2 * 2, window_sizes=1, shifts=0, num_heads=8
-        )
-        
-        ##### 🧩 Codebook + VQ #####
-        self.VQ = VectorQuantize(
-            dim = min_ch * 2 * 2,
-            codebook_size = 1024,
-            decay = 0.8,
-            commitment_weight = 1.,
-            accept_image_fmap=True,
-            freeze_codebook=not is_pretrain
-        )
-        if not is_pretrain:
-            print("🧩 Fine-tuning stage: freeze codebook")
-        else:
-            print("🧩 Pretraining stage: learn codebook")
-        
-        Transformer = []
-        for i in range(res_depth - 1):
-            (
-                Transformer.append(
-                    FDT(
-                        inp_channels=min_ch * 2 * 2,
-                        window_sizes=1,
-                        shifts=1,
-                        num_heads=8,
-                    ),
-                )
-                if i % 2 == 0
-                else Transformer.append(
-                    FDT(
-                        inp_channels=min_ch * 2 * 2,
-                        window_sizes=1,
-                        shifts=0,
-                        num_heads=8,
-                    )
-                )
-            )
-        self.Transformer = nn.Sequential(*Transformer)
-
-        self.TransformerUp1 = nn.Sequential(
-            FDT(inp_channels=min_ch * 2 * 2, window_sizes=8, shifts=1, num_heads=8),
-        )
-        self.TransformerUp2 = nn.Sequential(
-            FDT(inp_channels=min_ch * 2, window_sizes=4, shifts=0, num_heads=4),
-        )
-        self.TransformerUp3 = nn.Sequential(
-            FDT(inp_channels=min_ch, window_sizes=2, shifts=1, num_heads=4),
-            FDT(inp_channels=min_ch, window_sizes=2, shifts=0, num_heads=4),
-        )
-
-        self.Upsample1 = nn.Sequential(
-            nn.Conv2d(
-                min_ch * 2 * 2,
-                min_ch * 2 * 2 * 2 * 2,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
-            nn.PixelShuffle(2),
-        )
-        self.Upsample2 = nn.Sequential(
-            nn.Conv2d(
-                min_ch * 2 * 2,
-                min_ch * 2 * 2 * 2,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
-            nn.PixelShuffle(2),
-        )
-        self.Upsample3 = nn.Sequential(
-            nn.Conv2d(
-                min_ch * 2,
-                min_ch * 2 * 2,
-                kernel_size=3,
-                stride=1,
-                padding=1,
-                bias=False,
-            ),
-            nn.PixelShuffle(2),
-        )
-
-        self.out_conv = nn.Conv2d(min_ch, inchannel, kernel_size=3, padding=1)
-
-    def forward(self, input_img):
-        x_first = self.first_conv(input_img)  # 첫 conv
-
-        ############ encoder ############
-        x1 = self.TransformerDown1(x_first)  # hw:128  c:40
-        x1 = self.Downsample1(x1)  # all hw:64 c:80
-
-        x2 = self.TransformerDown2(x1)  # hw:64  c:80
-        x2 = self.Downsample2(x2)  # all hw:32 c:160
-
-        x3 = self.TransformerDown3(x2)  # hw:32  c:160
-        x3 = self.Downsample3(x3)  # all hw:16 c:160 (채널 수 그대로, 해상도만 2배)
-        ############ encoder ############
-
-        x_trans0 = self.Transformer0(x3)  # hw:16 c:160
-        
-        # 🧩 VQ
-        # print("❤️", x_trans0.shape)
-        quantized, _indices, commit_loss = self.VQ(x_trans0)
-        
-        x_trans = self.Transformer(quantized)  # hw:16 c:160
-
-        ############ decoder ############
-        # use residual connection only when finetuning
-        x_up1 = self.Upsample1(x_trans if self.is_pretrain else (x3 + x_trans))  # hw:32 c:160
-        x_1 = self.TransformerUp1(x_up1)  # hw:32 c:160
-
-        x_up2 = self.Upsample2(x_1 if self.is_pretrain else (x2 + x_1))  # hw:64 c:80
-        x_2 = self.TransformerUp2(x_up2)  # hw:64 c:80
-
-        x_up3 = self.Upsample3(x_2 if self.is_pretrain else (x1 + x_2))  # hw:128 c:40
-        x_3 = self.TransformerUp3(x_up3)  # hw:128 c:40
-        ############ decoder ############
-
-        out_img = self.out_conv(x_3)  # 마무리 conv
-
-        return out_img, commit_loss
