@@ -5,11 +5,38 @@ from vector_quantize_pytorch import VectorQuantize
 from models.arch.wfen import FDT
 
 
+def make_transformer_blocks(num_channels, res_depth):
+    blocks = []
+    for i in range(res_depth - 1):
+        (
+            blocks.append(
+                FDT(
+                    inp_channels=num_channels,
+                    window_sizes=1,
+                    shifts=1,
+                    num_heads=8
+                ),
+            )
+            if i % 2 == 0
+            else blocks.append(
+                FDT(
+                    inp_channels=num_channels,
+                    window_sizes=1,
+                    shifts=0,
+                    num_heads=8
+                )
+            )
+        )
+        
+    return blocks
+
+
 class VQWFEN(nn.Module):
     def __init__(
         self,
         inchannel=3,
         min_ch=40,
+        res_depth=4,
         is_pretrain=False,
     ):
         super(VQWFEN, self).__init__()
@@ -18,6 +45,7 @@ class VQWFEN(nn.Module):
 
         self.first_conv = nn.Conv2d(inchannel, min_ch, kernel_size=3, padding=1)
 
+        # encoder
         self.Downsample1 = nn.Sequential(
             nn.Conv2d(
                 min_ch, min_ch // 2, kernel_size=3, stride=1, padding=1, bias=False
@@ -57,8 +85,9 @@ class VQWFEN(nn.Module):
         self.TransformerDown3 = nn.Sequential(
             FDT(inp_channels=min_ch * 4, window_sizes=2, shifts=0, num_heads=8),
         )
-
-        # 🧩 Codebook + VQ
+        
+        # bottleneck (with codebook + VQ)
+        self.TransformerMid1 = nn.Sequential(*make_transformer_blocks(min_ch * 8, res_depth))
         self.VQ = VectorQuantize(
             dim=min_ch * 8,
             codebook_size=1024,
@@ -67,11 +96,9 @@ class VQWFEN(nn.Module):
             accept_image_fmap=True,
             freeze_codebook=not is_pretrain,
         )
-        if is_pretrain:
-            print("🍿 pretraining VQ-WFEN")
-        else:
-            print("🌽 fine-tuning VQ-WFEN")
+        self.TransformerMid2 = nn.Sequential(*make_transformer_blocks(min_ch * 8, res_depth))
 
+        # decoder
         self.TransformerUp1 = nn.Sequential(
             FDT(inp_channels=min_ch * 4, window_sizes=8, shifts=1, num_heads=8),
         )
@@ -137,10 +164,12 @@ class VQWFEN(nn.Module):
         x_down3 = self.Downsample3(x_skip3)  # (16, 16, 320)
 
         # bottleneck
-        quantized, _indices, commit_loss = self.VQ(x_down3)  # VQ
+        x_mid1 = self.TransformerMid1(x_down3)
+        quantized, _indices, commit_loss = self.VQ(x_mid1)  # VQ
+        x_mid2 = self.TransformerMid2(quantized)
 
         # decoder (use skip connection only when fine-tuning)
-        x_up1 = self.Upsample1(quantized)
+        x_up1 = self.Upsample1(x_mid2)
         if self.is_pretrain:
             x_up1 = self.TransformerUp1(x_up1)  # (32, 32, 160)
         else:
