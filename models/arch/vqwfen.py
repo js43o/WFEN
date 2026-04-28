@@ -127,37 +127,37 @@ class VQWFEN(nn.Module):
         x_first = self.first_conv(input_img)
 
         # encoder
-        x_down1 = self.TransformerDown1(x_first)  # (128, 128, 40)
-        x_down1 = self.Downsample1(x_down1)  # (64, 64, 80)
+        x_skip1 = self.TransformerDown1(x_first)  # (128, 128, 40)
+        x_down1 = self.Downsample1(x_skip1)  # (64, 64, 80)
 
-        x_down2 = self.TransformerDown2(x_down1)  # (64, 64, 80)
-        x_down2 = self.Downsample2(x_down2)  # (32, 32, 160)
+        x_skip2 = self.TransformerDown2(x_down1)  # (64, 64, 80)
+        x_down2 = self.Downsample2(x_skip2)  # (32, 32, 160)
 
-        x_down3 = self.TransformerDown3(x_down2)  # (32, 32, 160)
-        x_down3 = self.Downsample3(x_down3)  # (16, 16, 320)
+        x_skip3 = self.TransformerDown3(x_down2)  # (32, 32, 160)
+        x_down3 = self.Downsample3(x_skip3)  # (16, 16, 320)
 
         # bottleneck
         quantized, _indices, commit_loss = self.VQ(x_down3)  # VQ
 
-        # decoder (use residual connection only when fine-tuning)
+        # decoder (use skip connection only when fine-tuning)
+        x_up1 = self.Upsample1(quantized)
         if self.is_pretrain:
-            x_up1 = self.Upsample1(quantized)  # (32, 32, 160)
+            x_up1 = self.TransformerUp1(x_up1)  # (32, 32, 160)
         else:
-            x_up1 = self.Upsample1(self.fuse_conv1(torch.cat([x_down3, quantized], dim=1)))
-        x_up1 = self.TransformerUp1(x_up1)  # (32, 32, 160)
+            x_up1 = self.TransformerUp1(x_up1 + x_skip3)  # (32, 32, 160)
         
+        x_up2 = self.Upsample2(x_up1)
         if self.is_pretrain:
-            x_up2 = self.Upsample2(x_up1)  # (64, 64, 80)
+            x_up2 = self.TransformerUp2(x_up2)  # (64, 64, 80)
         else:
-            x_up2 = self.Upsample2(self.fuse_conv2(torch.cat([x_down2, x_up1], dim=1)))
-        x_up2 = self.TransformerUp2(x_up2)  # (64, 64, 80)
+            x_up2 = self.TransformerUp2(x_up2 + x_skip2)  # (64, 64, 80)
 
+        x_up3 = self.Upsample3(x_up2)
         if self.is_pretrain:
-            x_up3 = self.Upsample3(x_up2)  # (128, 128, 40)
+            x_up3 = self.TransformerUp3(x_up3)  # (128, 128, 40)
         else:
-            x_up3 = self.Upsample3(self.fuse_conv3(torch.cat([x_down1, x_up2], dim=1)))
-        x_up3 = self.TransformerUp3(x_up3)  # (128, 128, 40)
+            x_up3 = self.TransformerUp3(x_up3 + x_skip1)  # (128, 128, 40)
 
-        out_img = self.out_conv(x_up3)
+        out_img = self.out_conv(x_up3 + x_first)
 
         return out_img, commit_loss

@@ -47,10 +47,10 @@ class VQWFENModel(BaseModel):
             self.optimizers = [self.optimizer_G]
         
         if not opt.is_pretrain:
+            print("❄️ freeze codebook and some layers")
             for name, param in self.netG.named_parameters():
-                if name.startswith("module.Transformer.") or name.startswith("module.TransformerUp"):
-                    print("❄️ Freeze layer:", name)
-                    param.requires_grad = False # freeze all layers after VQ
+                if name.startswith("module.TransformerMid") or name.startswith("module.TransformerUp"):
+                    param.requires_grad = False
             
 
     def load_pretrain_model(
