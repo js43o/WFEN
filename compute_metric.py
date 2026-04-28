@@ -51,6 +51,7 @@ get_lpips = create_metric("lpips", device=device)
 get_niqe = create_metric("niqe", device=device)
 get_fid = create_metric("fid", device=device)
 get_musiq = create_metric("musiq", device=device)
+get_vif = create_metric("vif", device=device)
 
 # Identity Model
 id_model = resnet_face18(use_se=False).to(device)
@@ -74,6 +75,7 @@ musiq = 0.0
 ids = 0.0
 lmd = 0.0
 lmd_count = 0
+vif = 0.0
 
 for idx, filename in enumerate(gt_filenames):
     print("🍊 %s/%s" % (idx + 1, len(gt_filenames)))
@@ -127,6 +129,7 @@ for idx, filename in enumerate(gt_filenames):
     lpips += get_lpips(gt_image, pred_image).item()
     niqe += get_niqe(pred_image).item()
     musiq += get_musiq(pred_image).item()
+    vif += get_vif(gt_image, pred_image).item()
 
     ids += ids_score
     if lmd_score is not None:
@@ -142,6 +145,7 @@ scores = {
     "IDS": ids / len(gt_filenames),
     "FID": fid.item(),
     "MUSIQ": musiq / len(gt_filenames),
+    "VIF": vif / len(gt_filenames),
     "LMD": lmd / lmd_count,
 }
 results = ["%s=%s" % (k, v) for k, v in scores.items()]
