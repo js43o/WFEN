@@ -1,14 +1,13 @@
-# export CUDA_VISIBLE_DEVICES=2
-
+export CUDA_VISIBLE_DEVICES=2,3
 
 # ==============
 # Train WFEN
 # ==============
-python train.py --gpus 1 --name 4-7_simple_concat_feature_level_vq --model vqwfen \
+python train.py --gpus 1 --name 4-X_test --model vqwfen \
     --Gnorm "bn" --lr 0.0002 --beta1 0.9 --scale_factor 8 --load_size 128 \
-    --dataroot /4tb/datasets/ffhq_custom-aligned --dataset_name blind_ffhq --batch_size 8 --total_epochs 80 \
-    --visual_freq 100 --print_freq 10 --save_latest_freq 10000 \
-    --continue_train --load_iter 440000 # --is_pretrain 
+    --dataroot /data/VCL/Jiseung/datasets/ffhq_custom-aligned --dataset_name clean_ffhq --batch_size 16 --total_epochs 50 \
+    --visual_freq 500 --print_freq 50 --save_latest_freq 10000 \
+    --is_pretrain  # --continue_train --load_iter 440000 # 
 
 # ===============
 # Train WFENHD

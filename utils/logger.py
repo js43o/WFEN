@@ -71,9 +71,11 @@ class Logger():
             imgs.append(np.hstack(tmp_imgs))
         imgs = np.vstack(imgs).astype(np.uint8)
         self.writer.add_image(tag, imgs, self.cur_iter, dataformats='HWC')
+        
+        return imgs
 
     def record_text(self, tag, text):
-        self.writer.add_text(tag, text) 
+        self.writer.add_text(tag, text)
 
     def printIterSummary(self, epoch, cur_iters, total_it, timer):
         msg = '{}\nIter: [{}]{:03d}/{:03d}\t\t'.format(

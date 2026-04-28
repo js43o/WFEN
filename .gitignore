@@ -18,3 +18,4 @@ __pycache__/*
 _*
 !__init__.py
 .vscode*
+wandb

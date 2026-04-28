@@ -12,7 +12,6 @@ class VQWFEN(nn.Module):
         min_ch=40,
         is_pretrain=False,
     ):
-        print("🔥 VQ-WFEN (is_pretrain=%s)" % is_pretrain)
         super(VQWFEN, self).__init__()
 
         self.is_pretrain = is_pretrain
@@ -68,10 +67,10 @@ class VQWFEN(nn.Module):
             accept_image_fmap=True,
             freeze_codebook=not is_pretrain,
         )
-        if not is_pretrain:
-            print("🧩 Fine-tuning stage: freeze codebook")
+        if is_pretrain:
+            print("🍿 pretraining VQ-WFEN")
         else:
-            print("🧩 Pretraining stage: learn codebook")
+            print("🌽 fine-tuning VQ-WFEN")
 
         self.TransformerUp1 = nn.Sequential(
             FDT(inp_channels=min_ch * 4, window_sizes=8, shifts=1, num_heads=8),
