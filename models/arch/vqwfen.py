@@ -158,6 +158,9 @@ class VQWFEN(nn.Module):
         else:
             x_up3 = self.TransformerUp3(x_up3 + x_skip1)  # (128, 128, 40)
 
-        out_img = self.out_conv(x_up3 + x_first)
+        if self.is_pretrain:
+            out_img = self.out_conv(x_up3)
+        else:
+            out_img = self.out_conv(x_up3 + x_first)
 
         return out_img, commit_loss
