@@ -37,7 +37,7 @@ class VQWFENModel(BaseModel):
         if self.isTrain:
             self.vgg19 = loss.PCPFeat('./pretrain_models/vgg19-dcbb9e9d.pth', 'vgg')
             self.vgg19 = networks.define_network(opt, self.vgg19, isTrain=False, init_network=False)
-
+            
             self.criterionL1 = nn.L1Loss()
             self.criterionPCP = loss.PCPLoss(opt)
             

@@ -1,9 +1,10 @@
+export WANDB_API_KEY=90142575dfa8ad97bc4b974e5757895006e41638
 # ==============
 # Train WFEN
 # ==============
-python train.py --gpus 1 --name 4-9_in-vq_add-skip-2 --model vqwfen \
+python train.py --gpus 1 --name 4-14_cross-attn_new --model vqwfen \
     --Gnorm "bn" --lr 0.0002 --beta1 0.9 --scale_factor 8 --load_size 128 \
-    --dataroot /data/VCL/Jiseung/datasets/ffhq_custom-aligned --dataset_name clean_ffhq --batch_size 6 --total_epochs 50 \
+    --dataroot /vcl2/Jiseung/datasets/ffhq_custom-aligned_filtered --dataset_name clean_ffhq --batch_size 16 --total_epochs 50 \
     --visual_freq 500 --print_freq 50 --save_latest_freq 10000 \
     --is_pretrain # --continue_train --load_iter 440000
 

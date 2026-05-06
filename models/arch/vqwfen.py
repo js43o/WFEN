@@ -87,16 +87,18 @@ class VQWFEN(nn.Module):
         )
         
         # bottleneck (with codebook + VQ)
-        self.TransformerMid1 = nn.Sequential(*make_transformer_blocks(min_ch * 8, res_depth))
+        # self.TransformerMid1 = nn.Sequential(*make_transformer_blocks(min_ch * 8, res_depth))
         self.VQ = VectorQuantize(
             dim=min_ch * 8,
             codebook_size=1024,
-            decay=0.8,
-            commitment_weight=1.0,
+            decay=0.95,
+            commitment_weight=0.25,
+            use_cosine_sim=True,
+            layernorm_after_project_in=True,
+            threshold_ema_dead_code=2,
             accept_image_fmap=True,
-            freeze_codebook=not is_pretrain,
         )
-        self.TransformerMid2 = nn.Sequential(*make_transformer_blocks(min_ch * 8, res_depth))
+        # self.TransformerMid2 = nn.Sequential(*make_transformer_blocks(min_ch * 8, res_depth))
 
         # decoder
         self.TransformerUp1 = nn.Sequential(
@@ -144,10 +146,6 @@ class VQWFEN(nn.Module):
             nn.PixelShuffle(2),
         )
         
-        self.fuse_conv1 = nn.Conv2d(min_ch * 16, min_ch * 8, kernel_size=3, padding=1)
-        self.fuse_conv2 = nn.Conv2d(min_ch * 8, min_ch * 4, kernel_size=3, padding=1)
-        self.fuse_conv3 = nn.Conv2d(min_ch * 4, min_ch * 2, kernel_size=3, padding=1)
-
         self.out_conv = nn.Conv2d(min_ch, inchannel, kernel_size=3, padding=1)
 
     def forward(self, input_img):
@@ -164,12 +162,12 @@ class VQWFEN(nn.Module):
         x_down3 = self.Downsample3(x_skip3)  # (16, 16, 320)
 
         # bottleneck
-        x_mid1 = self.TransformerMid1(x_down3)
-        quantized, _indices, commit_loss = self.VQ(x_mid1)  # VQ
-        x_mid2 = self.TransformerMid2(quantized)
+        # x_mid1 = self.TransformerMid1(x_down3)
+        quantized, _indices, commit_loss = self.VQ(x_down3)  # VQ
+        # x_mid2 = self.TransformerMid2(quantized)
 
         # decoder (use skip connection only when fine-tuning)
-        x_up1 = self.Upsample1(x_mid2)
+        x_up1 = self.Upsample1(quantized)
         if self.is_pretrain:
             x_up1 = self.TransformerUp1(x_up1)  # (32, 32, 160)
         else:
