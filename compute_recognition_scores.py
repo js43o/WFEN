@@ -13,10 +13,10 @@ from sklearn.metrics import roc_curve
 # 설정
 # ──────────────────────────────────────────
 HQ_PATH = (
-    "results/11-1_query-reuse_64px/lfw_custom-aligned/hr"
+    "results/10_og/lfw_custom-aligned_validation/hr"
 )
 PRED_PATH = (
-    "results/11-1_query-reuse_64px/lfw_custom-aligned/pred"
+    "results/10_og/lfw_custom-aligned_validation/pred"
 )
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH = 64

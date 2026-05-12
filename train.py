@@ -26,16 +26,11 @@ if __name__ == "__main__":
     timer = Timer()
     
     wandb.login()
-    project = 'Restormer'   ##### 
+    project = 'restormer_wfen-wrapper_offline-blind-ffhq'   # ⭐️ project name
     run_postfix = datetime.now().strftime('%Y%m%d_%H%M%S')
-    run_name = "%s_%s_%s" % ("pre" if opt.is_pretrain else "ft", opt.name, run_postfix)
+    run_name = "%s_%s" % (opt.name, run_postfix)
     
-    os.makedirs("results/%s/%s" % (opt.name, "pre" if opt.is_pretrain else "ft"), exist_ok=True)
-    
-    if opt.is_pretrain:
-        print("🍿 pretraining model")
-    else:
-        print("🌽 fine-tuning model")
+    os.makedirs("results/%s/train" % opt.name, exist_ok=True)
 
     single_epoch_iters = dataset_size // opt.batch_size
     total_iters = opt.total_epochs * single_epoch_iters
@@ -75,7 +70,7 @@ if __name__ == "__main__":
                 if cur_iters % opt.visual_freq == 0:
                     visual_imgs = model.get_current_visuals()
                     imgs = logger.record_images(visual_imgs)
-                    Image.fromarray(imgs).save("results/%s/%s/%s.png" % (opt.name, "pre" if opt.is_pretrain else "ft", cur_iters))
+                    Image.fromarray(imgs).save("results/%s/train/%s.png" % (opt.name, cur_iters))
 
                 info = {"resume_epoch": epoch, "resume_iter": i + 1}
                 if cur_iters % opt.save_iter_freq == 0:

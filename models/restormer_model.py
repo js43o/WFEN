@@ -2,12 +2,16 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from models import loss 
 from models import networks
 from .base_model import BaseModel
 from utils import utils
 from models.arch.restormer import Restormer
 from models.arch.query_reuse_restormer import QueryReuseRestormer
+from models.arch.key_reuse_restormer import KeyReuseRestormer
+from models.arch.value_reuse_restormer import ValueReuseRestormer
+from models.arch.map_reuse_restormer import MapReuseRestormer
+from models.arch.wavelet_restormer import WaveletRestormer
+
 
 class RestormerModel(BaseModel):
 
@@ -19,7 +23,7 @@ class RestormerModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
 
-        self.netG = QueryReuseRestormer()
+        self.netG = Restormer()
         self.netG = networks.define_network(opt, self.netG)
 
         self.model_names = ['G']

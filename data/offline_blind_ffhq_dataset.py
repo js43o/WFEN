@@ -25,8 +25,8 @@ class OfflineBlindFFHQDataset(BaseDataset):
         print("# Loading image paths...")
         
         for epoch in epochs:
-            hr_paths_epoch = sorted(glob(os.path.join(self.img_dir, 'gt', '*.png')))
-            lr_paths_epoch = sorted(glob(os.path.join(self.img_dir, 'lq', epoch, '*.png')))
+            hr_paths_epoch = sorted(glob(os.path.join(self.img_dir, 'gt', '*.jpg')))
+            lr_paths_epoch = sorted(glob(os.path.join(self.img_dir, 'lq', epoch, '*.jpg')))
             
             assert len(hr_paths_epoch) == len(lr_paths_epoch), "The number of HR and LR images should be the same."
             
@@ -40,12 +40,14 @@ class OfflineBlindFFHQDataset(BaseDataset):
         hr_img = cv2.imread(self.hr_paths[index])
         lr_img = cv2.imread(self.lr_paths[index])
         
-        if hr_img.size[0] != self.img_size or hr_img.size[1] != self.img_size:
+        h, w = hr_img.shape[:2]
+        if h != self.img_size or w != self.img_size:
             hr_img = cv2.resize(
                 hr_img, dsize=(self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR
             )
         
-        if lr_img.size[0] != self.img_size or lr_img.size[1] != self.img_size:
+        h, w = lr_img.shape[:2]
+        if h != self.img_size or w != self.img_size:
             lr_img = cv2.resize(
                 lr_img, dsize=(self.img_size, self.img_size), interpolation=cv2.INTER_LINEAR
             )
