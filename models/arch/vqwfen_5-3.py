@@ -114,10 +114,9 @@ class VQWFEN(nn.Module):
         self.HaarFeatureFusion2 = WFU_LFSkip(min_ch * 4, min_ch * 2)
         self.HaarFeatureFusion3 = WFU_LFSkip(min_ch * 2, min_ch)
         
-        self.vq0 = VectorQuantize(dim=min_ch * 4, codebook_size=1024, decay=0.95, accept_image_fmap=True, freeze_codebook=not self.is_pretrain)
-        self.vq1 = VectorQuantize(dim=min_ch * 4, codebook_size=1024, decay=0.95, accept_image_fmap=True, freeze_codebook=not self.is_pretrain)
-        self.vq2 = VectorQuantize(dim=min_ch * 4, codebook_size=1024, decay=0.95, accept_image_fmap=True, freeze_codebook=not self.is_pretrain)
-        self.vq3 = VectorQuantize(dim=min_ch * 2, codebook_size=1024, decay=0.95, accept_image_fmap=True, freeze_codebook=not self.is_pretrain)
+        self.vq1 = VectorQuantize(dim=min_ch * 4, codebook_size=512, decay=0.95, accept_image_fmap=True, freeze_codebook=not self.is_pretrain)
+        self.vq2 = VectorQuantize(dim=min_ch * 4, codebook_size=512, decay=0.95, accept_image_fmap=True, freeze_codebook=not self.is_pretrain)
+        self.vq3 = VectorQuantize(dim=min_ch * 2, codebook_size=512, decay=0.95, accept_image_fmap=True, freeze_codebook=not self.is_pretrain)
         
         self.out_conv = nn.Conv2d(min_ch, inchannel, kernel_size=3, padding=1)
 
@@ -140,10 +139,7 @@ class VQWFEN(nn.Module):
         ############ encoder ############
 
         x_trans0 = self.Transformer0(x3_a)  # hw:16 c:160
-        
-        x_trans_quant, _, commit_loss0 = self.vq0(x_trans0)
-        
-        x_trans = self.Transformer(x_trans_quant)  # hw:16 c:160
+        x_trans = self.Transformer(x_trans0)  # hw:16 c:160
         x3_hvd_enhanced = self.RB3(x3_hvd)
         x_trans = x_trans + x3_hvd_enhanced  # hw:16 c:160
 
@@ -166,6 +162,6 @@ class VQWFEN(nn.Module):
         else:
             out_img = self.out_conv(x_3 + x_first)
         
-        commit_loss_total = commit_loss0 + commit_loss1 + commit_loss2 + commit_loss3
+        commit_loss_total = commit_loss1 + commit_loss2 + commit_loss3
 
         return out_img, commit_loss_total

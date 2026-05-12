@@ -3,10 +3,10 @@
 # Test WFEN on Helen and CelebA test dataset
 # ================================================================================
 
-python test.py --gpus 1 --model vqwfen --name 5-5_quad-hf-vq \
-    --load_size 128 --dataset_name blind_ffhq --dataroot /vcl2/Jiseung/datasets/celeba-hq_custom-aligned \
-    --pretrain_model_path check_points/5-5_quad-hf-vq/latest_net_G.pth \
-    --save_as_dir results/5-5_quad-hf-vq/celeba-hq_custom-aligned
+python test.py --gpus 1 --model restormer --name 11-1_query-reuse_64px \
+    --load_size 64 --dataset_name blind_ffhq --dataroot /vcl2/Jiseung/datasets/lfw_custom-aligned \
+    --pretrain_model_path check_points/11-1_query-reuse_64px/latest_net_G.pth \
+    --save_as_dir results/11-1_query-reuse_64px/lfw_custom-aligned
 
 # ----------------- calculate PSNR/SSIM scores ----------------------------------
 # python psnr_ssim.py

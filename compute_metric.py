@@ -15,12 +15,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/4-1_feature_level_vq/lfw_custom-aligned/pred",
+    default="results/11-1_query-reuse_64px/celeba-hq_custom-aligned/pred",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="results/4-1_feature_level_vq/lfw_custom-aligned/hr",
+    default="results/11-1_query-reuse_64px/celeba-hq_custom-aligned/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"

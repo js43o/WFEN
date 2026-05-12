@@ -26,16 +26,16 @@ if __name__ == "__main__":
     timer = Timer()
     
     wandb.login()
-    project = 'VQ-WFEN'
+    project = 'Restormer'   ##### 
     run_postfix = datetime.now().strftime('%Y%m%d_%H%M%S')
     run_name = "%s_%s_%s" % ("pre" if opt.is_pretrain else "ft", opt.name, run_postfix)
     
     os.makedirs("results/%s/%s" % (opt.name, "pre" if opt.is_pretrain else "ft"), exist_ok=True)
     
     if opt.is_pretrain:
-        print("🍿 pretraining VQ-WFEN")
+        print("🍿 pretraining model")
     else:
-        print("🌽 fine-tuning VQ-WFEN")
+        print("🌽 fine-tuning model")
 
     single_epoch_iters = dataset_size // opt.batch_size
     total_iters = opt.total_epochs * single_epoch_iters

@@ -14,7 +14,7 @@ class VQWFENModel(BaseModel):
     def modify_commandline_options(parser, is_train):
         if is_train:
             parser.add_argument('--lambda_pix', type=float, default=100.0, help='weight for pixel loss')
-            parser.add_argument('--lambda_pcp', type=float, default=1.0, help='weight for vgg perceptual loss')
+            parser.add_argument('--lambda_pcp', type=float, default=0.5, help='weight for vgg perceptual loss')
             parser.add_argument('--lambda_commit', type=float, default=1000.0, help='weight for commitment loss')
             
         parser.add_argument(
@@ -47,10 +47,13 @@ class VQWFENModel(BaseModel):
             self.optimizers = [self.optimizer_G]
         
         if not opt.is_pretrain:
+            pass
+            """
             print("❄️ freeze codebook and some layers")
             for name, param in self.netG.named_parameters():
-                if name.startswith("module.TransformerMid") or name.startswith("module.TransformerUp"):
+                if name.startswith("module.Upsample") or name.startswith("module.TransformerUp"):
                     param.requires_grad = False
+            """
             
 
     def load_pretrain_model(
@@ -71,8 +74,8 @@ class VQWFENModel(BaseModel):
         self.img_HR = input["HR"].to(self.opt.data_device)
 
     def forward(self):
-        self.img_SR, self.loss_Commit = self.netG(self.img_LR)
-        self.loss_Commit = self.loss_Commit * self.opt.lambda_commit
+        self.img_SR, loss_Commit = self.netG(self.img_LR)
+        self.loss_Commit = loss_Commit * self.opt.lambda_commit
 
         self.fake_vgg_feat = self.vgg19(self.img_SR)
         self.real_vgg_feat = self.vgg19(self.img_HR)
