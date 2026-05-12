@@ -142,11 +142,11 @@ scores = {
     "SSIM": ssim / len(gt_filenames),
     "LPIPS": lpips / len(gt_filenames),
     "NIQE": niqe / len(gt_filenames),
-    "IDS": ids / len(gt_filenames),
-    "FID": fid.item(),
     "MUSIQ": musiq / len(gt_filenames),
-    "VIF": vif / len(gt_filenames),
+    "FID": fid.item(),
+    "IDS": ids / len(gt_filenames),
     "LMD": lmd / lmd_count,
+    "VIF": vif / len(gt_filenames),
 }
 results = ["%s=%s" % (k, v) for k, v in scores.items()]
 

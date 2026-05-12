@@ -23,7 +23,7 @@ class RestormerModel(BaseModel):
     def __init__(self, opt):
         BaseModel.__init__(self, opt)
 
-        self.netG = Restormer()
+        self.netG = QueryReuseRestormer()
         self.netG = networks.define_network(opt, self.netG)
 
         self.model_names = ['G']
