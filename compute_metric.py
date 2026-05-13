@@ -7,6 +7,7 @@ from pyiqa import create_metric
 import argparse
 import face_alignment
 import numpy as np
+from tqdm import tqdm
 
 from helpers.arcface.models import resnet_face18
 from helpers.utils import process_arcface_input
@@ -15,12 +16,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/10_og/celeba-hq_custom-aligned_validation/lr",
+    default="results/12-4_seperated-iwt_plus/celeba-hq_custom-aligned_validation/pred",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="results/10_og/celeba-hq_custom-aligned_validation/hr",
+    default="results/12-4_seperated-iwt_plus/celeba-hq_custom-aligned_validation/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"
@@ -77,9 +78,7 @@ lmd = 0.0
 lmd_count = 0
 vif = 0.0
 
-for idx, filename in enumerate(gt_filenames):
-    print("🍊 %s/%s" % (idx + 1, len(gt_filenames)))
-
+for idx, filename in tqdm(enumerate(gt_filenames), desc="computing metrics", total=(len(gt_filenames))):
     gt_filepath = os.path.join(args.gt_path, filename)
     gt_image = (
         to_tensor(

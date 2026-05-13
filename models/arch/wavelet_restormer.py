@@ -162,98 +162,21 @@ class Attention(nn.Module):
         return out
 
 
-class SkipAttention(nn.Module):
-    def __init__(self, dim, num_heads, bias):
-        super(SkipAttention, self).__init__()
-        self.num_heads = num_heads
-        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
-
-        self.q = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
-        self.q_dwconv = nn.Conv2d(
-            dim,
-            dim,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            groups=dim,
-            bias=bias,
-        )
-            
-        self.kv = nn.Conv2d(dim, dim * 2, kernel_size=1, bias=bias)
-        self.kv_dwconv = nn.Conv2d(
-            dim * 2,
-            dim * 2,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            groups=dim * 2,
-            bias=bias,
-        )
-        self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
-
-    def forward(self, x, skip):
-        assert skip is not None, "skip must be provided for SkipAttention"
-
-        b, c, h, w = x.shape
-
-        q = self.q_dwconv(self.q(skip))
-        kv = self.kv_dwconv(self.kv(x))
-        k, v = kv.chunk(2, dim=1)  # 채널 수를 2배로 확장 후 k/v로 분할
-
-        # 채널 축을 head로 나누어 multi-head attention 준비
-        q = rearrange(q, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-        k = rearrange(k, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-        v = rearrange(v, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-
-        q = torch.nn.functional.normalize(q, dim=-1)
-        k = torch.nn.functional.normalize(k, dim=-1)
-
-        # (c, hw) @ (hw, c) => (c, c) attention map
-        attn = (q @ k.transpose(-2, -1)) * self.temperature
-        attn = attn.softmax(dim=-1)
-
-        out = attn @ v  # (c, c) @ (c, hw) => (c, hw)
-
-        out = rearrange(
-            out, "b head c (h w) -> b (head c) h w", head=self.num_heads, h=h, w=w
-        )
-
-        out = self.project_out(out)
-
-        return out
-
-
 ##########################################################################
 # norm -> attn -> (skip) -> norm -> ffn -> (skip)으로 구성된 기본 Transformer 블록
 class TransformerBlock(nn.Module):
-    def __init__(
-        self,
-        dim,
-        num_heads,
-        ffn_expansion_factor,
-        bias,
-        LayerNorm_type,
-        skip_query=False,
-    ):
+    def __init__(self, dim, num_heads, ffn_expansion_factor, bias, LayerNorm_type):
         super(TransformerBlock, self).__init__()
 
         self.norm1 = LayerNorm(dim, LayerNorm_type)
-
-        if skip_query:
-            self.attn = SkipAttention(dim, num_heads, bias)
-        else:
-            self.attn = Attention(dim, num_heads, bias)
-
+        self.attn = Attention(dim, num_heads, bias)
         self.norm2 = LayerNorm(dim, LayerNorm_type)
         self.ffn = FeedForward(dim, ffn_expansion_factor, bias)
 
-    def forward(self, x, skip=None):
-        if skip is None:
-            x = x + self.attn(self.norm1(x))
-        else:
-            x = x + self.attn(self.norm1(x), skip)
+    def forward(self, x):
+        x = x + self.attn(self.norm1(x))
         x = x + self.ffn(self.norm2(x))
-        
+
         return x
 
 
@@ -309,6 +232,18 @@ class Upsample(nn.Module):
         return self.body(x)
 
 
+class ResidualMLP(nn.Module):
+    def __init__(self, dim, ffn_expansion_factor, bias, LayerNorm_type):
+        super(ResidualMLP, self).__init__()
+
+        self.norm = LayerNorm(dim, LayerNorm_type)
+        self.ffn = FeedForward(dim, ffn_expansion_factor, bias)
+
+    def forward(self, x):
+        x = x + self.ffn(self.norm(x))
+
+        return x
+
 ##########################################################################
 ## Restormer 네트워크 아키텍처
 ## patch_embed -> 3계층 인코더 -> bottleneck -> 3계층 디코더 -> refinement로 구성
@@ -317,8 +252,8 @@ class WaveletRestormer(nn.Module):
         self,
         inp_channels=3,
         out_channels=3,
-        dim=32,  # 임베딩 채널 수
-        num_blocks=[2, 2, 2, 4],  # encoder/decoder 각 계층의 Transformer 블록 수
+        dim=12,  # 임베딩 채널 수
+        num_blocks=[2, 2, 2, 2],  # encoder/decoder 각 계층의 Transformer 블록 수
         num_refinement_blocks=2,  # 네트워크 마지막 refinement 단계의 Transformer 블록 수
         heads=[1, 2, 4, 8],  # 각 계층 내 Transformer의 multi-head 개수 정의
         ffn_expansion_factor=2.66,  # FFN 블록의 hidden 채널 확장 비율
@@ -327,25 +262,21 @@ class WaveletRestormer(nn.Module):
         dual_pixel_task=False,  ## True for dual-pixel defocus deblurring only. Also set inp_channels=6
     ):
 
-        print("🍌 Wavelet-Restormer architecture.")
+        print("🍌 Wavelet-Restormer (12.3. seperated-IWT / refine LF)")
         super(WaveletRestormer, self).__init__()
+        
+        self.dim = dim
 
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
         
-        self.dim = dim
         self.wavelet_transform = HaarWavelet(dim, grad=False)
         
-        self.refine_lf1 = Downsample(dim)
-        self.refine_lf2 = Downsample(int(dim * 2**1))
-        # self.refine_lf3 = Downsample(int(dim * 2**2))
+        self.refine_lf = nn.Sequential(*[ResidualMLP(dim, ffn_expansion_factor, bias, LayerNorm_type) for _ in range(3)])
 
-        self.reduce_chan_hfs = nn.Conv2d(  # concat된 HF 채널 수 축소
-            int(dim * 3), int(dim), kernel_size=1, bias=bias
-        )
         self.encoder_level1 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=dim,
+                    dim=dim*3,
                     num_heads=heads[0],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -355,11 +286,11 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        self.down1_2 = Downsample(dim)  ## From Level 1 to Level 2
+        self.down1_2 = Downsample(dim*3)  ## From Level 1 to Level 2
         self.encoder_level2 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim * 2**1),
+                    dim=int(dim*3 * 2**1),
                     num_heads=heads[1],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -369,11 +300,11 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        self.down2_3 = Downsample(int(dim * 2**1))  ## From Level 2 to Level 3
+        self.down2_3 = Downsample(int(dim*3 * 2**1))  ## From Level 2 to Level 3
         self.encoder_level3 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim * 2**2),
+                    dim=int(dim*3 * 2**2),
                     num_heads=heads[2],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -383,13 +314,13 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        self.down3_4 = Downsample(int(dim * 2**2))  ## From Level 3 to Level 4
+        self.down3_4 = Downsample(int(dim*3 * 2**2))  ## From Level 3 to Level 4
 
         # bottleneck Transformer 블록
         self.latent = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim * 2**3),
+                    dim=int(dim*3 * 2**3),
                     num_heads=heads[3],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -399,66 +330,63 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        self.up4_3 = Upsample(int(dim * 2**3))  ## From Level 4 to Level 3
+        self.up4_3 = Upsample(int(dim*3 * 2**3))  ## From Level 4 to Level 3
         self.reduce_chan_level3 = nn.Conv2d(  # concat skip 후 늘어난 채널 수 축소
-            int(dim * 2**3), int(dim * 2**2), kernel_size=1, bias=bias
+            int(dim*3 * 2**3), int(dim*3 * 2**2), kernel_size=1, bias=bias
         )
-        self.decoder_level3 = nn.ModuleList(
-            [
+        self.decoder_level3 = nn.Sequential(
+            *[
                 TransformerBlock(
-                    dim=int(dim * 2**2),
+                    dim=int(dim*3 * 2**2),
                     num_heads=heads[2],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
                     LayerNorm_type=LayerNorm_type,
-                    skip_query=True,
                 )
                 for i in range(num_blocks[2])
             ]
         )
 
-        self.up3_2 = Upsample(int(dim * 2**2))  ## From Level 3 to Level 2
+        self.up3_2 = Upsample(int(dim*3 * 2**2))  ## From Level 3 to Level 2
         self.reduce_chan_level2 = nn.Conv2d(
-            int(dim * 2**2), int(dim * 2**1), kernel_size=1, bias=bias
+            int(dim*3 * 2**2), int(dim*3 * 2**1), kernel_size=1, bias=bias
         )
-        self.decoder_level2 = nn.ModuleList(
-            [
+        self.decoder_level2 = nn.Sequential(
+            *[
                 TransformerBlock(
-                    dim=int(dim * 2**1),
+                    dim=int(dim*3 * 2**1),
                     num_heads=heads[1],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
                     LayerNorm_type=LayerNorm_type,
-                    skip_query=True,
                 )
                 for i in range(num_blocks[1])
             ]
         )
 
         self.up2_1 = Upsample(
-            int(dim * 2**1)
+            int(dim*3 * 2**1)
         )
         self.reduce_chan_level1 = nn.Conv2d(
-            int(dim * 2**1), int(dim), kernel_size=1, bias=bias
+            int(dim*3 * 2**1), int(dim*3), kernel_size=1, bias=bias
         )
-        self.decoder_level1 = nn.ModuleList(
-            [
+        self.decoder_level1 = nn.Sequential(
+            *[
                 TransformerBlock(
-                    dim=int(dim),
+                    dim=int(dim*3),
                     num_heads=heads[0],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
                     LayerNorm_type=LayerNorm_type,
-                    skip_query=True,
                 )
                 for i in range(num_blocks[0])
             ]
         )
 
-        self.refinement = nn.ModuleList(
-            [
+        self.refinement = nn.Sequential(
+            *[
                 TransformerBlock(
-                    dim=int(dim),
+                    dim=int(dim*3),
                     num_heads=heads[0],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -467,11 +395,11 @@ class WaveletRestormer(nn.Module):
                 for i in range(num_refinement_blocks)
             ]
         )
+        self.inverse_wavelet_transform = HaarWavelet(dim, grad=True)
 
         self.output = nn.Sequential(
-            nn.PixelShuffle(2),
             nn.Conv2d(
-                int(dim // 4), out_channels, kernel_size=3, stride=1, padding=1, bias=bias
+                int(dim), out_channels, kernel_size=3, stride=1, padding=1, bias=bias
             )
         )
 
@@ -486,13 +414,10 @@ class WaveletRestormer(nn.Module):
         d = haar.narrow(1, self.dim * 3, self.dim)
         
         ##### refine LF #####
-        q1 = self.refine_lf1(a)
-        q2 = self.refine_lf2(q1)
-        # q3 = self.refine_lf3(q2)
+        refined_lf = self.refine_lf(a)
 
         ##### encoder #####
         inp_enc_level1 = torch.cat([h, v, d], 1)  # 웨이블릿 변환 후 채널 방향으로 concat
-        inp_enc_level1 = self.reduce_chan_hfs(inp_enc_level1)   # concat된 HF 채널 수를 기존과 동일하게 변환
         out_enc_level1 = self.encoder_level1(inp_enc_level1)
 
         inp_enc_level2 = self.down1_2(out_enc_level1)
@@ -510,29 +435,25 @@ class WaveletRestormer(nn.Module):
         inp_dec_level3 = self.up4_3(latent)
         inp_dec_level3 = torch.cat([inp_dec_level3, out_enc_level3], 1)  # concat skip
         inp_dec_level3 = self.reduce_chan_level3(inp_dec_level3)  # skip 채널 수 축소
-        out_dec_level3 = inp_dec_level3
-        for block in self.decoder_level3:
-            out_dec_level3 = block(out_dec_level3, q2)
+        out_dec_level3 = self.decoder_level3(inp_dec_level3)
 
         inp_dec_level2 = self.up3_2(out_dec_level3)
         inp_dec_level2 = torch.cat([inp_dec_level2, out_enc_level2], 1)
         inp_dec_level2 = self.reduce_chan_level2(inp_dec_level2)
-        out_dec_level2 = inp_dec_level2
-        for block in self.decoder_level2:
-            out_dec_level2 = block(out_dec_level2, q1)
+        out_dec_level2 = self.decoder_level2(inp_dec_level2)
 
         inp_dec_level1 = self.up2_1(out_dec_level2)
         inp_dec_level1 = torch.cat([inp_dec_level1, out_enc_level1], 1)
         inp_dec_level1 = self.reduce_chan_level1(inp_dec_level1)
-        out_dec_level1 = inp_dec_level1
-        for block in self.decoder_level1:
-            out_dec_level1 = block(out_dec_level1, a)
+        out_dec_level1 = self.decoder_level1(inp_dec_level1)
+        
+        out_dec_refined = self.refinement(out_dec_level1)
+        
+        out_dec_iwt = self.inverse_wavelet_transform(
+            torch.cat([out_dec_refined, refined_lf], 1), rev=True
+        )
 
-        for block in self.refinement:
-            out_dec_level1 = block(out_dec_level1)
+        out_dec_last = self.output(out_dec_iwt)
+        out_dec_last = out_dec_last + inp_img
 
-        print(out_dec_level1.shape, inp_img.shape)
-        out_dec_level1 = self.output(out_dec_level1)
-        out_dec_level1 = out_dec_level1 + inp_img
-
-        return out_dec_level1
+        return out_dec_last
