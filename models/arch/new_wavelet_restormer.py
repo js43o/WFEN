@@ -251,7 +251,14 @@ class LFRefineBlock(nn.Module):
         
         self.in_conv = nn.Conv2d(inp_channels, dim, kernel_size=3, stride=1, padding=1, bias=bias)
         self.body = nn.Sequential(*[
-            ResidualMLP(dim, ffn_expansion_factor, bias, LayerNorm_type) for _ in range(3)
+            TransformerBlock(
+                dim=dim,
+                num_heads=4,
+                ffn_expansion_factor=ffn_expansion_factor,
+                bias=bias,
+                LayerNorm_type=LayerNorm_type,
+            )
+            for i in range(3)
         ])
         self.out_conv = nn.Conv2d(dim, inp_channels, kernel_size=3, stride=1, padding=1, bias=bias)
         
