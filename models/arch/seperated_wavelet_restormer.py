@@ -481,4 +481,4 @@ class WaveletRestormer(nn.Module):
             torch.cat([refined_lf, refined_hf], 1), rev=True
         )
 
-        return out_dec_last, refined_hf
+        return out_dec_last, refined_lf, refined_hf

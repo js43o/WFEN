@@ -7,19 +7,21 @@ from models import loss, networks
 from .base_model import BaseModel
 from utils import utils
 from models.arch.restormer import Restormer
-from models.arch.new_wavelet_restormer import WaveletRestormer
+from models.arch.dual_wavelet_restormer import WaveletRestormer
 
 from models.arch.wfen import HaarWavelet
 
 
-class NewRestormerModel(BaseModel):
+class DualRestormerModel(BaseModel):
 
     def modify_commandline_options(parser, is_train):
         parser.add_argument('--scale_factor', type=int, default=8, help='upscale factor for model')
-        parser.add_argument('--lambda_pix', type=float, default=1.0, help='weight for pixel loss')
+        parser.add_argument('--lambda_pix', type=float, default=0.0, help='weight for pixel loss')
         parser.add_argument('--lambda_ssim', type=float, default=0.0, help='weight for SSIM loss')
         parser.add_argument('--lambda_vgg', type=float, default=0.001, help='weight for VGG loss')
-        parser.add_argument('--lambda_hf', type=float, default=0.1, help='weight for high-frequency (HF)-wise loss')
+        
+        parser.add_argument('--lambda_lf', type=float, default=1.0, help='weight for low-frequency (LF) feature loss')
+        parser.add_argument('--lambda_hf', type=float, default=1.0, help='weight for high-frequency (HF) feature loss')
         return parser
     
 
@@ -34,7 +36,7 @@ class NewRestormerModel(BaseModel):
 
         self.model_names = ['G']
         self.load_model_names = ['G']
-        self.loss_names = ['Pix', 'SSIM', 'VGG', 'HF'] 
+        self.loss_names = ['Pix', 'SSIM', 'VGG', 'LF', 'HF'] 
         self.visual_names = ['img_LR', 'img_SR', 'img_HR']
 
         if self.isTrain:
@@ -64,13 +66,14 @@ class NewRestormerModel(BaseModel):
         self.img_HR = input['HR'].to(self.opt.data_device)
         
         haar = self.wavelet_transform(self.img_HR)
-        h = haar.narrow(1, self.in_channels, self.in_channels)  # HF1
-        v = haar.narrow(1, self.in_channels * 2, self.in_channels)  # HF2
-        d = haar.narrow(1, self.in_channels * 3, self.in_channels)  # HF3
+        self.img_lf_HR = haar.narrow(1, 0, self.in_channels).to(self.opt.data_device)
+        h = haar.narrow(1, self.in_channels, self.in_channels)
+        v = haar.narrow(1, self.in_channels * 2, self.in_channels)
+        d = haar.narrow(1, self.in_channels * 3, self.in_channels)
         self.img_hf_HR = torch.cat([h, v, d], 1).to(self.opt.data_device)
 
     def forward(self):
-        self.img_SR, self.img_hf_SR = self.netG(self.img_LR)
+        self.img_SR, self.img_lf_SR, self.img_hf_SR = self.netG(self.img_LR)
         
         self.fake_vgg_feat = self.vgg19(self.img_SR)
         self.real_vgg_feat = self.vgg19(self.img_HR)
@@ -79,9 +82,11 @@ class NewRestormerModel(BaseModel):
         self.loss_Pix = self.criterionL1(self.img_SR, self.img_HR) * self.opt.lambda_pix
         self.loss_SSIM = (1 - self.compute_ssim(self.img_SR, self.img_HR)) * self.opt.lambda_ssim
         self.loss_VGG = self.criterionPCP(self.fake_vgg_feat, self.real_vgg_feat) * self.opt.lambda_vgg
+        
+        self.loss_LF = self.criterionL1(self.img_lf_SR, self.img_lf_HR) * self.opt.lambda_lf
         self.loss_HF = self.criterionL1(self.img_hf_SR, self.img_hf_HR) * self.opt.lambda_hf
         
-        loss = self.loss_Pix + self.loss_SSIM + self.loss_VGG + self.loss_HF
+        loss = self.loss_Pix + self.loss_SSIM + self.loss_VGG + self.loss_LF + self.loss_HF
         loss.backward()
     
     def optimize_parameters(self, ):
