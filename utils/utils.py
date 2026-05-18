@@ -5,6 +5,12 @@ from skimage import io
 from PIL import Image
 import os
 import subprocess
+from torchvision.transforms.functional import (
+    rgb_to_grayscale,
+    resize,
+    InterpolationMode
+)
+
 
 
 def img_to_tensor(img_path, device, size=None, mode='rgb'):
@@ -107,3 +113,10 @@ def get_gpu_memory_map():
     return gpu_memory_map, sorted(gpu_memory_map, key=gpu_memory_map.get)
 
 
+# ArcFace 입력 이미지 변환 메서드
+# RGB [0, 1] -> Grayscale [0, 1]
+def process_arcface_input(image: torch.Tensor):
+    output = resize(image, size=(128, 128), interpolation=InterpolationMode.BICUBIC)
+    output = rgb_to_grayscale(output, num_output_channels=1)
+
+    return output

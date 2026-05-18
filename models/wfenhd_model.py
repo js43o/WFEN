@@ -95,8 +95,7 @@ class WFENHDModel(BaseModel):
         loss = self.loss_Pix + self.loss_PCP + self.loss_FM + self.loss_G
         loss.backward()
 
-    def backward_D(self, ):
-
+    def backward_D(self):
         loss = 0
         for i in range(self.opt.num_D):
             loss += 0.5 * (self.criterionGAN(self.fake_D_results[i], False) + self.criterionGAN(self.real_D_results[i][0], True))

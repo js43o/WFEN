@@ -28,9 +28,11 @@ if __name__ == "__main__":
     wandb.login()
     project = 'restormer_wfen-wrapper_offline-blind-ffhq'   # ⭐️ project name
     run_postfix = datetime.now().strftime('%Y%m%d_%H%M%S')
-    run_name = "%s_%s" % (opt.name, run_postfix)
-    
-    os.makedirs("results/%s/train" % opt.name, exist_ok=True)
+    if opt.continue_train and opt.run_name is not None:
+        print("🚩 Continue training with run name %s" % opt.run_name)
+        run_name = opt.run_name
+    else:
+        run_name = "%s_%s" % (opt.name, run_postfix)
 
     single_epoch_iters = dataset_size // opt.batch_size
     total_iters = opt.total_epochs * single_epoch_iters
@@ -41,7 +43,7 @@ if __name__ == "__main__":
             opt.resume_epoch, opt.resume_iter
         )
     )
-    with wandb.init(project=project, id=run_name, config=opt) as run:
+    with wandb.init(project=project, id=run_name, config=opt, resume='allow') as run:
         for epoch in range(opt.resume_epoch, opt.total_epochs + 1):
             for i, data in enumerate(dataset, start=start_iter):
                 cur_iters += 1
