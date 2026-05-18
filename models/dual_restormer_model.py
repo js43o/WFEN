@@ -16,7 +16,7 @@ class DualRestormerModel(BaseModel):
 
     def modify_commandline_options(parser, is_train):
         parser.add_argument('--scale_factor', type=int, default=8, help='upscale factor for model')
-        parser.add_argument('--lambda_pix', type=float, default=0.0, help='weight for pixel loss')
+        parser.add_argument('--lambda_pix', type=float, default=1.0, help='weight for pixel loss')
         parser.add_argument('--lambda_ssim', type=float, default=0.0, help='weight for SSIM loss')
         parser.add_argument('--lambda_vgg', type=float, default=0.001, help='weight for VGG loss')
         
@@ -32,24 +32,31 @@ class DualRestormerModel(BaseModel):
 
         self.netG = WaveletRestormer()
         self.netG = networks.define_network(opt, self.netG)
-        self.wavelet_transform = HaarWavelet(in_channels=self.in_channels, grad=False).to(device=self.opt.data_device)
+        self.wavelet_transform = HaarWavelet(in_channels=self.in_channels, grad=False).to(device=opt.data_device)
 
         self.model_names = ['G']
         self.load_model_names = ['G']
-        self.loss_names = ['Pix', 'SSIM', 'VGG', 'LF', 'HF'] 
+        self.loss_names = ['Pix', 'LF', 'HF'] 
         self.visual_names = ['img_LR', 'img_SR', 'img_HR']
 
         if self.isTrain:
             self.criterionL1 = nn.L1Loss()
             self.criterionPCP = loss.PCPLoss(opt)
-            self.compute_ssim = pyiqa.create_metric("ssim", as_loss=True, device=self.opt.data_device)
 
             self.optimizer_G = optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.99))
             self.optimizers = [self.optimizer_G]
             
-            self.vgg19 = loss.PCPFeat('./pretrain_models/vgg19-dcbb9e9d.pth', 'vgg')
-            self.vgg19 = networks.define_network(opt, self.vgg19, isTrain=False, init_network=False)
+            if opt.lambda_ssim > 0:
+                print("➕ SSIM loss")
+                self.loss_names.append('SSIM')
+                self.compute_ssim = pyiqa.create_metric("ssim", as_loss=True, device=self.opt.data_device)
 
+            if opt.lambda_vgg > 0:
+                print("➕ VGG loss")
+                self.loss_names.append('VGG')
+                self.vgg19 = loss.PCPFeat('./pretrain_models/vgg19-dcbb9e9d.pth', 'vgg')
+                self.vgg19 = networks.define_network(opt, self.vgg19, isTrain=False, init_network=False)
+                
     def load_pretrain_model(self,):
         print('Loading pretrained model', self.opt.pretrain_model_path)
         weight = torch.load(self.opt.pretrain_model_path)
@@ -65,7 +72,7 @@ class DualRestormerModel(BaseModel):
         self.img_LR = input['LR'].to(self.opt.data_device)
         self.img_HR = input['HR'].to(self.opt.data_device)
         
-        haar = self.wavelet_transform(self.img_HR)
+        haar = self.wavelet_transform(self.img_HR, rev=False)
         self.img_lf_HR = haar.narrow(1, 0, self.in_channels).to(self.opt.data_device)
         h = haar.narrow(1, self.in_channels, self.in_channels)
         v = haar.narrow(1, self.in_channels * 2, self.in_channels)
@@ -75,18 +82,25 @@ class DualRestormerModel(BaseModel):
     def forward(self):
         self.img_SR, self.img_lf_SR, self.img_hf_SR = self.netG(self.img_LR)
         
-        self.fake_vgg_feat = self.vgg19(self.img_SR)
-        self.real_vgg_feat = self.vgg19(self.img_HR)
+        if self.opt.lambda_vgg > 0:
+            self.fake_vgg_feat = self.vgg19(self.img_lf_SR)
+            self.real_vgg_feat = self.vgg19(self.img_lf_HR)
 
     def backward_G(self):
         self.loss_Pix = self.criterionL1(self.img_SR, self.img_HR) * self.opt.lambda_pix
-        self.loss_SSIM = (1 - self.compute_ssim(self.img_SR, self.img_HR)) * self.opt.lambda_ssim
-        self.loss_VGG = self.criterionPCP(self.fake_vgg_feat, self.real_vgg_feat) * self.opt.lambda_vgg
-        
         self.loss_LF = self.criterionL1(self.img_lf_SR, self.img_lf_HR) * self.opt.lambda_lf
         self.loss_HF = self.criterionL1(self.img_hf_SR, self.img_hf_HR) * self.opt.lambda_hf
         
-        loss = self.loss_Pix + self.loss_SSIM + self.loss_VGG + self.loss_LF + self.loss_HF
+        loss = self.loss_Pix + self.loss_LF + self.loss_HF
+        
+        if self.opt.lambda_ssim > 0:
+            self.loss_SSIM = (1 - self.compute_ssim(self.img_SR, self.img_HR)) * self.opt.lambda_ssim
+            loss += self.loss_SSIM
+        
+        if self.opt.lambda_vgg > 0:
+            self.loss_VGG = self.criterionPCP(self.fake_vgg_feat, self.real_vgg_feat) * self.opt.lambda_vgg
+            loss += self.loss_VGG
+        
         loss.backward()
     
     def optimize_parameters(self, ):
