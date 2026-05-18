@@ -24,15 +24,17 @@ if __name__ == "__main__":
 
     logger = Logger(opt)
     timer = Timer()
-    
+
     wandb.login()
-    project = 'restormer_wfen-wrapper_offline-blind-ffhq'   # ⭐️ project name
-    run_postfix = datetime.now().strftime('%Y%m%d_%H%M%S')
+    project = "restormer_wfen-wrapper_offline-blind-ffhq"  # ⭐️ project name
+    run_postfix = datetime.now().strftime("%Y%m%d_%H%M%S")
     if opt.continue_train and opt.run_name is not None:
         print("🚩 Continue training with run name %s" % opt.run_name)
         run_name = opt.run_name
     else:
         run_name = "%s_%s" % (opt.name, run_postfix)
+
+    os.makedirs("results/%s/train" % opt.name, exist_ok=True)
 
     single_epoch_iters = dataset_size // opt.batch_size
     total_iters = opt.total_epochs * single_epoch_iters
@@ -43,7 +45,7 @@ if __name__ == "__main__":
             opt.resume_epoch, opt.resume_iter
         )
     )
-    with wandb.init(project=project, id=run_name, config=opt, resume='allow') as run:
+    with wandb.init(project=project, id=run_name, config=opt, resume="allow") as run:
         for epoch in range(opt.resume_epoch, opt.total_epochs + 1):
             for i, data in enumerate(dataset, start=start_iter):
                 cur_iters += 1
@@ -58,7 +60,7 @@ if __name__ == "__main__":
                 loss = model.get_current_losses()
                 loss.update(model.get_lr())
                 logger.record_losses(loss)
-                
+
                 run.log(loss)
 
                 # =================== save model and visualize ===============
@@ -67,22 +69,29 @@ if __name__ == "__main__":
                     epoch_progress = "{:03d}|{:05d}/{:05d}".format(
                         epoch, i, single_epoch_iters
                     )
-                    logger.printIterSummary(epoch_progress, cur_iters, total_iters, timer)
+                    logger.printIterSummary(
+                        epoch_progress, cur_iters, total_iters, timer
+                    )
 
                 if cur_iters % opt.visual_freq == 0:
                     visual_imgs = model.get_current_visuals()
                     imgs = logger.record_images(visual_imgs)
-                    Image.fromarray(imgs).save("results/%s/train/%s.png" % (opt.name, cur_iters))
+                    Image.fromarray(imgs).save(
+                        "results/%s/train/%s.png" % (opt.name, cur_iters)
+                    )
 
                 info = {"resume_epoch": epoch, "resume_iter": i + 1}
                 if cur_iters % opt.save_iter_freq == 0:
-                    print("saving current model (epoch %d, iters %d)" % (epoch, cur_iters))
+                    print(
+                        "saving current model (epoch %d, iters %d)" % (epoch, cur_iters)
+                    )
                     save_suffix = "iter_%d" % cur_iters
                     model.save_networks(save_suffix, info)
 
                 if cur_iters % opt.save_latest_freq == 0:
                     print(
-                        "saving the latest model (epoch %d, iters %d)" % (epoch, cur_iters)
+                        "saving the latest model (epoch %d, iters %d)"
+                        % (epoch, cur_iters)
                     )
                     model.save_networks("latest", info)
 
@@ -91,5 +100,5 @@ if __name__ == "__main__":
             if opt.debug and epoch > 5:
                 exit()
             #  model.update_learning_rate()
-            
+
     logger.close()
