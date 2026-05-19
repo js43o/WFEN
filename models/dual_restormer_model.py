@@ -17,11 +17,11 @@ class DualRestormerModel(BaseModel):
 
     def modify_commandline_options(parser, is_train):
         parser.add_argument('--scale_factor', type=int, default=8, help='upscale factor for model')
-        parser.add_argument('--lambda_pix', type=float, default=0.0, help='weight for pixel loss')
+        parser.add_argument('--lambda_pix', type=float, default=0.1, help='weight for pixel loss')
         parser.add_argument('--lambda_ssim', type=float, default=0.0, help='weight for SSIM loss')
         parser.add_argument('--lambda_vgg', type=float, default=0.0, help='weight for VGG loss')
         parser.add_argument('--lambda_adv', type=float, default=0.001, help='weight for adversarial loss')
-        parser.add_argument('--lambda_id', type=float, default=0.0, help='weight for identity loss')
+        parser.add_argument('--lambda_id', type=float, default=0.01, help='weight for identity loss')
         
         parser.add_argument('--lambda_lf', type=float, default=1.0, help='weight for low-frequency (LF) feature loss')
         parser.add_argument('--lambda_hf', type=float, default=1.0, help='weight for high-frequency (HF) feature loss')
@@ -62,7 +62,7 @@ class DualRestormerModel(BaseModel):
                 self.vgg19 = networks.define_network(opt, self.vgg19, isTrain=False, init_network=False)
             
             if opt.lambda_adv > 0:
-                print("➕ Adv loss")
+                print("➕ adversarial loss")
                 self.model_names.append('D')
                 self.load_model_names.append('D')
                 self.loss_names.extend(['FM', 'G', 'D'])
@@ -70,7 +70,7 @@ class DualRestormerModel(BaseModel):
                 self.criterionFM = loss.FMLoss().to(opt.data_device)
                 self.criterionGAN = loss.GANLoss(opt.gan_mode).to(opt.data_device)
                 
-                self.netD = networks.MultiScaleDiscriminator(3, n_layers=opt.n_layers_D, norm_type=opt.Dnorm, num_D=opt.num_D)
+                self.netD = networks.MultiScaleDiscriminator(9, n_layers=opt.n_layers_D, norm_type=opt.Dnorm, num_D=opt.num_D)
                 self.netD = networks.define_network(opt, self.netD, use_norm='spectral_norm')
                 
                 self.optimizer_D = optim.Adam(self.netD.parameters(), lr=opt.d_lr, betas=(opt.beta1, 0.99))
@@ -114,13 +114,13 @@ class DualRestormerModel(BaseModel):
         self.img_SR, self.img_lf_SR, self.img_hf_SR = self.netG(self.img_LR)
         
         if self.opt.lambda_vgg > 0:
-            self.fake_vgg_feat = self.vgg19(self.img_lf_SR)
-            self.real_vgg_feat = self.vgg19(self.img_lf_HR)
+            self.fake_vgg_feat = self.vgg19(self.img_SR)
+            self.real_vgg_feat = self.vgg19(self.img_HR)
         
         if self.opt.lambda_adv > 0:
-            self.real_D_results = self.netD(self.img_HR, return_feat=True)
-            self.fake_D_results = self.netD(self.img_SR.detach(), return_feat=False)
-            self.fake_G_results = self.netD(self.img_SR, return_feat=True)
+            self.real_D_results = self.netD(self.img_hf_HR, return_feat=True)
+            self.fake_D_results = self.netD(self.img_hf_SR.detach(), return_feat=False)
+            self.fake_G_results = self.netD(self.img_hf_SR, return_feat=True)
 
 
     def backward_G(self):

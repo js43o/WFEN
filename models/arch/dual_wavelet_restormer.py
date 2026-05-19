@@ -241,13 +241,12 @@ class WaveletRestormer(nn.Module):
         inp_channels=3,
         out_channels=3,
         dim=32,  # 임베딩 채널 수
-        num_blocks=[2, 2, 2, 4],  # encoder/decoder 각 계층의 Transformer 블록 수
+        num_blocks=[2, 3, 3, 4],  # encoder/decoder 각 계층의 Transformer 블록 수
         num_refinement_blocks=2,  # 네트워크 마지막 refinement 단계의 Transformer 블록 수
         heads=[1, 2, 4, 8],  # 각 계층 내 Transformer의 multi-head 개수 정의
         ffn_expansion_factor=2.66,  # FFN 블록의 hidden 채널 확장 비율
         bias=False,  # attention 연산에 쓰이는 conv 레이어의 bias 사용 여부
         LayerNorm_type="WithBias",  ## Other option 'BiasFree'
-        dual_pixel_task=False,  ## True for dual-pixel defocus deblurring only. Also set inp_channels=6
     ):
 
         print("🍒 Dual Wavelet-Restormer")
@@ -291,8 +290,37 @@ class WaveletRestormer(nn.Module):
         )
         
         self.lf_down2_3 = Downsample(int(dim * 2**1))
+        self.lf_encoder_lv3 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**2),
+                    num_heads=heads[2],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[2])
+            ]
+        )
+        
         # bottleneck
         self.lf_latent = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**2),
+                    num_heads=heads[2],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[3])
+            ]
+        )
+
+        self.lf_reduce_chan_lv3 = nn.Conv2d(
+            int(dim * 2**3), int(dim * 2**2), kernel_size=1, bias=bias
+        )
+        self.lf_decoder_lv3 = nn.Sequential(
             *[
                 TransformerBlock(
                     dim=int(dim * 2**2),
@@ -393,13 +421,11 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        self.down3_4 = Downsample(int(dim * 2**2))
-
         # bottleneck
         self.latent = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim * 2**3),
+                    dim=int(dim * 2**2),
                     num_heads=heads[3],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -409,7 +435,6 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        self.up4_3 = Upsample(int(dim * 2**3))
         self.reduce_chan_lv3 = nn.Conv2d(
             int(dim * 2**3), int(dim * 2**2), kernel_size=1, bias=bias
         )
@@ -502,12 +527,17 @@ class WaveletRestormer(nn.Module):
         lf_out_enc_lv2 = self.lf_encoder_lv2(lf_inp_enc_lv2)
 
         lf_inp_enc_lv3 = self.lf_down2_3(lf_out_enc_lv2)
+        lf_out_enc_lv3 = self.lf_encoder_lv3(lf_inp_enc_lv3)
         
         ##### bottleneck #####
-        lf_latent = self.lf_latent(lf_inp_enc_lv3)
+        lf_latent = self.lf_latent(lf_out_enc_lv3)
 
         ##### decoder #####
-        lf_inp_dec_lv2 = self.lf_up3_2(lf_latent)
+        lf_inp_dec_lv3 = torch.cat([lf_latent, lf_out_enc_lv3], 1)
+        lf_inp_dec_lv3 = self.lf_reduce_chan_lv3(lf_inp_dec_lv3)
+        lf_out_dec_lv3 = self.lf_decoder_lv3(lf_inp_dec_lv3)
+        
+        lf_inp_dec_lv2 = self.lf_up3_2(lf_out_dec_lv3)
         lf_inp_dec_lv2 = torch.cat([lf_inp_dec_lv2, lf_out_enc_lv2], 1)
         lf_inp_dec_lv2 = self.lf_reduce_chan_lv2(lf_inp_dec_lv2)
         lf_out_dec_lv2 = self.lf_decoder_lv2(lf_inp_dec_lv2)
@@ -533,15 +563,12 @@ class WaveletRestormer(nn.Module):
 
         inp_enc_lv3 = self.down2_3(out_enc_lv2)
         out_enc_lv3 = self.encoder_lv3(inp_enc_lv3)
-
-        inp_enc_lv4 = self.down3_4(out_enc_lv3)
         
         ##### bottleneck #####
-        latent = self.latent(inp_enc_lv4)
+        latent = self.latent(out_enc_lv3)
 
         ##### decoder #####
-        inp_dec_lv3 = self.up4_3(latent)
-        inp_dec_lv3 = torch.cat([inp_dec_lv3, out_enc_lv3], 1)  # concat skip
+        inp_dec_lv3 = torch.cat([latent, out_enc_lv3], 1)  # concat skip
         inp_dec_lv3 = self.reduce_chan_lv3(inp_dec_lv3)  # skip 채널 수 축소
         out_dec_lv3 = self.decoder_lv3(inp_dec_lv3)
 
@@ -556,7 +583,7 @@ class WaveletRestormer(nn.Module):
         out_dec_lv1 = self.decoder_lv1(inp_dec_lv1)
         
         refined_hf = self.refinement(out_dec_lv1)
-        refined_hf = self.output(refined_hf)
+        refined_hf = x + self.output(refined_hf)
         
         out_dec_last = self.inverse_wavelet_transform(
             torch.cat([refined_lf, refined_hf], 1), rev=True
