@@ -6,14 +6,13 @@ import pyiqa
 from models import loss, networks
 from .base_model import BaseModel
 from utils import utils
-from models.arch.restormer import Restormer
-from models.arch.dual_wavelet_restormer import DualWaveletRestormer
+from models.arch.dual_feature_wavelet_restormer import DualFeatureWaveletRestormer
 
 from models.arch.wfen import HaarWavelet
 from helpers.arcface.models import resnet_face18
 
 
-class DualRestormerModel(BaseModel):
+class DualFeatureRestormerModel(BaseModel):
 
     def modify_commandline_options(parser, is_train):
         parser.add_argument('--scale_factor', type=int, default=8, help='upscale factor for model')
@@ -33,7 +32,7 @@ class DualRestormerModel(BaseModel):
         
         self.in_channels = 3
 
-        self.netG = DualWaveletRestormer()
+        self.netG = DualFeatureWaveletRestormer()
         self.netG = networks.define_network(opt, self.netG)
         self.wavelet_transform = HaarWavelet(in_channels=self.in_channels, grad=False).to(device=opt.data_device)
 
@@ -104,14 +103,23 @@ class DualRestormerModel(BaseModel):
         self.img_HR = input['HR'].to(self.opt.data_device)
         
         haar = self.wavelet_transform(self.img_HR, rev=False)
-        self.img_lf_HR = haar.narrow(1, 0, self.in_channels).to(self.opt.data_device)
         h = haar.narrow(1, self.in_channels, self.in_channels)
         v = haar.narrow(1, self.in_channels * 2, self.in_channels)
         d = haar.narrow(1, self.in_channels * 3, self.in_channels)
+        
+        self.img_lf_HR = haar.narrow(1, 0, self.in_channels).to(self.opt.data_device)
         self.img_hf_HR = torch.cat([h, v, d], 1).to(self.opt.data_device)
 
     def forward(self):
-        self.img_SR, self.img_lf_SR, self.img_hf_SR = self.netG(self.img_LR)
+        self.img_SR = self.netG(self.img_LR)
+        
+        haar = self.wavelet_transform(self.img_SR, rev=False)
+        h = haar.narrow(1, self.in_channels, self.in_channels)
+        v = haar.narrow(1, self.in_channels * 2, self.in_channels)
+        d = haar.narrow(1, self.in_channels * 3, self.in_channels)
+        
+        self.img_lf_SR = haar.narrow(1, 0, self.in_channels).to(self.opt.data_device)
+        self.img_hf_SR = torch.cat([h, v, d], 1).to(self.opt.data_device)
         
         if self.opt.lambda_vgg > 0:
             self.fake_vgg_feat = self.vgg19(self.img_SR)
