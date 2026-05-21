@@ -18,7 +18,7 @@ class DualFeatureRestormerModel(BaseModel):
         parser.add_argument('--scale_factor', type=int, default=8, help='upscale factor for model')
         parser.add_argument('--lambda_pix', type=float, default=0.1, help='weight for pixel loss')
         parser.add_argument('--lambda_ssim', type=float, default=0.0, help='weight for SSIM loss')
-        parser.add_argument('--lambda_vgg', type=float, default=0.0, help='weight for VGG loss')
+        parser.add_argument('--lambda_vgg', type=float, default=0.001, help='weight for VGG loss')
         parser.add_argument('--lambda_adv', type=float, default=0.001, help='weight for adversarial loss')
         parser.add_argument('--lambda_id', type=float, default=0.01, help='weight for identity loss')
         
@@ -78,8 +78,8 @@ class DualFeatureRestormerModel(BaseModel):
             if opt.lambda_id > 0:
                 print("➕ identity loss")
                 self.loss_names.append('ID')
-                self.criterionID = nn.CosineEmbeddingLoss()
-                self.arcface_model = resnet_face18(use_se=False).to(opt.data_device)
+                self.criterionID = loss.IDLoss()
+                self.arcface_model = resnet_face18(use_se=False, use_feature_maps=True).to(opt.data_device)
                 self.arcface_model.load_state_dict(
                     torch.load("helpers/arcface/weights/resnet18_110_wo_dist.pth", weights_only=False)
                 )
@@ -164,9 +164,8 @@ class DualFeatureRestormerModel(BaseModel):
         if self.opt.lambda_id > 0:
             pred_embed = self.arcface_model(utils.process_arcface_input(self.img_lf_SR))
             hr_embed = self.arcface_model(utils.process_arcface_input(self.img_lf_HR))
-            ID_TARGET = torch.ones((hr_embed.shape[0],), device=hr_embed.device)
 
-            self.loss_ID = self.criterionID(pred_embed, hr_embed, ID_TARGET) * self.opt.lambda_id
+            self.loss_ID = self.criterionID(pred_embed, hr_embed) * self.opt.lambda_id
             loss += self.loss_ID
         
         loss.backward()

@@ -163,9 +163,11 @@ class SEBlock(nn.Module):
 
 
 class ResNetFace(nn.Module):
-    def __init__(self, block, layers, use_se=True):
+    def __init__(self, block, layers, use_se=True, use_feature_maps=False):
+        print("🔥 use identity feature maps")
         self.inplanes = 64
         self.use_se = use_se
+        self.use_feature_maps = use_feature_maps
         super(ResNetFace, self).__init__()
         self.conv1 = nn.Conv2d(1, 64, kernel_size=3, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(64)
@@ -222,13 +224,18 @@ class ResNetFace(nn.Module):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
+        feat_3 = x
         x = self.layer4(x)
+        feat_4 = x
         x = self.bn4(x)
         x = self.dropout(x)
         x = x.view(x.size(0), -1)
         x = self.fc5(x)
         x = self.bn5(x)
 
+        if self.use_feature_maps:
+            return [feat_3, feat_4]
+        
         return x
 
 

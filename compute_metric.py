@@ -16,12 +16,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/14-2_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1_two-level-2/celeba-hq_custom-aligned_validation/pred",
+    default="results/14-4_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1-vgg_two-level-2_no-dnorm/celeba-hq_custom-aligned_validation/pred",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="results/14-2_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1_two-level-2/celeba-hq_custom-aligned_validation/hr",
+    default="results/14-4_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1-vgg_two-level-2_no-dnorm/celeba-hq_custom-aligned_validation/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"

@@ -96,6 +96,24 @@ class PCPLoss(torch.nn.Module):
         return loss
 
 
+
+class IDLoss(torch.nn.Module):
+    """Identity Loss."""
+
+    def __init__(self):
+        super(IDLoss, self).__init__()
+
+        self.crit = torch.nn.CosineEmbeddingLoss()
+        self.weights = [1, 1]
+
+    def forward(self, x_feats, y_feats):
+        loss = 0
+        for xf, yf, w in zip(x_feats, y_feats, self.weights):
+            xf, yf = xf.view(xf.size(0), -1), yf.view(yf.size(0), -1)
+            loss = loss + self.crit(xf, yf.detach(), torch.ones(xf.shape[0], device=xf.device)) * w
+        return loss
+    
+
 class FMLoss(nn.Module):
     def __init__(self):
         super().__init__()

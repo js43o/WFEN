@@ -13,10 +13,10 @@ from sklearn.metrics import roc_curve
 # 설정
 # ──────────────────────────────────────────
 HQ_PATH = (
-    "results/14-2_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1_two-level-2/lfw_custom-aligned_validation/hr"
+    "results/14-4_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1-vgg_two-level-2_no-dnorm/lfw_custom-aligned_validation/hr"
 )
 PRED_PATH = (
-    "results/14-2_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1_two-level-2/lfw_custom-aligned_validation/pred"
+    "results/14-4_dual_feature-iwt_lf-id_hf-adv_pix-weak-l1-vgg_two-level-2_no-dnorm/lfw_custom-aligned_validation/pred"
 )
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH = 64
