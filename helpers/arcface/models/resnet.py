@@ -164,7 +164,6 @@ class SEBlock(nn.Module):
 
 class ResNetFace(nn.Module):
     def __init__(self, block, layers, use_se=True, use_feature_maps=False):
-        print("🔥 use identity feature maps")
         self.inplanes = 64
         self.use_se = use_se
         self.use_feature_maps = use_feature_maps
