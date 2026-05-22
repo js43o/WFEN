@@ -16,7 +16,7 @@ HQ_PATH = (
     "results/14-7_banana/lfw_custom-aligned_validation/hr"
 )
 PRED_PATH = (
-    "results/14-7_banana/lfw_custom-aligned_validation/pred"
+    "results/14-7_banana/lfw_custom-aligned_validation/lr"
 )
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH = 64

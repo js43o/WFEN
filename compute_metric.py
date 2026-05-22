@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/14-7_banana/celeba-hq_custom-aligned_validation/pred",
+    default="results/14-7_banana/celeba-hq_custom-aligned_validation/lr",
 )
 parser.add_argument(
     "--gt_path",

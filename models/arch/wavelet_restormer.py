@@ -234,7 +234,7 @@ class Upsample(nn.Module):
 
 ##########################################################################
 ## Restormer 네트워크 아키텍처
-class DualFeatureWaveletRestormer(nn.Module):
+class WaveletRestormer(nn.Module):
     def __init__(
         self,
         inp_channels=3,
@@ -248,15 +248,15 @@ class DualFeatureWaveletRestormer(nn.Module):
         LayerNorm_type="WithBias",  ## Other option 'BiasFree'
     ):
 
-        print("🥜 Dual Feature Wavelet-Restormer")
-        super(DualFeatureWaveletRestormer, self).__init__()
-        
+        print("🌊 Wavelet-Restormer")
+        super(WaveletRestormer, self).__init__()
+
         self.inp_channels = inp_channels
         self.dim = dim
-        
+
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
         self.wavelet_transform = HaarWavelet(dim, grad=False)
-        
+
         """
             LF subbands network 📉
         """
@@ -286,7 +286,7 @@ class DualFeatureWaveletRestormer(nn.Module):
                 for i in range(num_blocks[1])
             ]
         )
-        
+
         self.lf_down2_3 = Downsample(int(dim * 2**1))
         self.lf_encoder_lv3 = nn.Sequential(
             *[
@@ -300,7 +300,7 @@ class DualFeatureWaveletRestormer(nn.Module):
                 for i in range(num_blocks[2])
             ]
         )
-        
+
         # bottleneck
         self.lf_latent = nn.Sequential(
             *[
@@ -348,9 +348,7 @@ class DualFeatureWaveletRestormer(nn.Module):
             ]
         )
 
-        self.lf_up2_1 = Upsample(
-            int(dim * 2**1)
-        )
+        self.lf_up2_1 = Upsample(int(dim * 2**1))
         self.lf_reduce_chan_lv1 = nn.Conv2d(
             int(dim * 2**1), int(dim), kernel_size=1, bias=bias
         )
@@ -386,7 +384,7 @@ class DualFeatureWaveletRestormer(nn.Module):
         self.hf_encoder_lv1 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=dim*3,
+                    dim=dim * 3,
                     num_heads=heads[0],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -396,11 +394,11 @@ class DualFeatureWaveletRestormer(nn.Module):
             ]
         )
 
-        self.hf_down1_2 = Downsample(dim*3)
+        self.hf_down1_2 = Downsample(dim * 3)
         self.hf_encoder_lv2 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim*3 * 2**1),
+                    dim=int(dim * 3 * 2**1),
                     num_heads=heads[1],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -410,11 +408,11 @@ class DualFeatureWaveletRestormer(nn.Module):
             ]
         )
 
-        self.hf_down2_3 = Downsample(int(dim*3 * 2**1)) 
+        self.hf_down2_3 = Downsample(int(dim * 3 * 2**1))
         self.hf_encoder_lv3 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim*3 * 2**2),
+                    dim=int(dim * 3 * 2**2),
                     num_heads=heads[2],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -428,7 +426,7 @@ class DualFeatureWaveletRestormer(nn.Module):
         self.hf_latent = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim*3 * 2**2),
+                    dim=int(dim * 3 * 2**2),
                     num_heads=heads[3],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -439,12 +437,12 @@ class DualFeatureWaveletRestormer(nn.Module):
         )
 
         self.hf_reduce_chan_lv3 = nn.Conv2d(
-            int(dim*3 * 2**3), int(dim*3 * 2**2), kernel_size=1, bias=bias
+            int(dim * 3 * 2**3), int(dim * 3 * 2**2), kernel_size=1, bias=bias
         )
         self.hf_decoder_lv3 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim*3 * 2**2),
+                    dim=int(dim * 3 * 2**2),
                     num_heads=heads[2],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -454,14 +452,14 @@ class DualFeatureWaveletRestormer(nn.Module):
             ]
         )
 
-        self.hf_up3_2 = Upsample(int(dim*3 * 2**2))
+        self.hf_up3_2 = Upsample(int(dim * 3 * 2**2))
         self.hf_reduce_chan_lv2 = nn.Conv2d(
-            int(dim*3 * 2**2), int(dim*3 * 2**1), kernel_size=1, bias=bias
+            int(dim * 3 * 2**2), int(dim * 3 * 2**1), kernel_size=1, bias=bias
         )
         self.hf_decoder_lv2 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim*3 * 2**1),
+                    dim=int(dim * 3 * 2**1),
                     num_heads=heads[1],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -471,16 +469,14 @@ class DualFeatureWaveletRestormer(nn.Module):
             ]
         )
 
-        self.hf_up2_1 = Upsample(
-            int(dim*3 * 2**1)
-        )
+        self.hf_up2_1 = Upsample(int(dim * 3 * 2**1))
         self.hf_reduce_chan_lv1 = nn.Conv2d(
-            int(dim*3 * 2**1), int(dim*3), kernel_size=1, bias=bias
+            int(dim * 3 * 2**1), int(dim * 3), kernel_size=1, bias=bias
         )
         self.hf_decoder_lv1 = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim*3),
+                    dim=int(dim * 3),
                     num_heads=heads[0],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -493,7 +489,7 @@ class DualFeatureWaveletRestormer(nn.Module):
         self.hf_refinement = nn.Sequential(
             *[
                 TransformerBlock(
-                    dim=int(dim*3),
+                    dim=int(dim * 3),
                     num_heads=heads[0],
                     ffn_expansion_factor=ffn_expansion_factor,
                     bias=bias,
@@ -502,22 +498,22 @@ class DualFeatureWaveletRestormer(nn.Module):
                 for i in range(num_refinement_blocks)
             ]
         )
-        
+
         """
             image-level 🖇️
         """
         self.last_refinement = nn.Sequential(
-                    *[
-                        TransformerBlock(
-                            dim=int(dim),
-                            num_heads=heads[0],
-                            ffn_expansion_factor=ffn_expansion_factor,
-                            bias=bias,
-                            LayerNorm_type=LayerNorm_type,
-                        )
-                        for i in range(num_refinement_blocks)
-                    ]
+            *[
+                TransformerBlock(
+                    dim=int(dim),
+                    num_heads=heads[0],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
                 )
+                for i in range(num_refinement_blocks)
+            ]
+        )
 
         self.output = nn.Sequential(
             nn.Conv2d(
@@ -525,17 +521,16 @@ class DualFeatureWaveletRestormer(nn.Module):
             )
         )
 
-
     def forward(self, inp_img):
 
         x = self.patch_embed(inp_img)
         haar = self.wavelet_transform(x, rev=False)
-        
+
         """
             refine LF subband 📉
         """
         a = haar.narrow(1, 0, self.dim)
-        
+
         ##### encoder #####
         lf_out_enc_lv1 = self.lf_encoder_lv1(a)
 
@@ -544,7 +539,7 @@ class DualFeatureWaveletRestormer(nn.Module):
 
         lf_inp_enc_lv3 = self.lf_down2_3(lf_out_enc_lv2)
         lf_out_enc_lv3 = self.lf_encoder_lv3(lf_inp_enc_lv3)
-        
+
         ##### bottleneck #####
         lf_latent = self.lf_latent(lf_out_enc_lv3)
 
@@ -552,7 +547,7 @@ class DualFeatureWaveletRestormer(nn.Module):
         lf_inp_dec_lv3 = torch.cat([lf_latent, lf_out_enc_lv3], 1)
         lf_inp_dec_lv3 = self.lf_reduce_chan_lv3(lf_inp_dec_lv3)
         lf_out_dec_lv3 = self.lf_decoder_lv3(lf_inp_dec_lv3)
-        
+
         lf_inp_dec_lv2 = self.lf_up3_2(lf_out_dec_lv3)
         lf_inp_dec_lv2 = torch.cat([lf_inp_dec_lv2, lf_out_enc_lv2], 1)
         lf_inp_dec_lv2 = self.lf_reduce_chan_lv2(lf_inp_dec_lv2)
@@ -562,9 +557,9 @@ class DualFeatureWaveletRestormer(nn.Module):
         lf_inp_dec_lv1 = torch.cat([lf_inp_dec_lv1, lf_out_enc_lv1], 1)
         lf_inp_dec_lv1 = self.lf_reduce_chan_lv1(lf_inp_dec_lv1)
         lf_out_dec_lv1 = self.lf_decoder_lv1(lf_inp_dec_lv1)
-        
+
         refined_lf = a + self.lf_refinement(lf_out_dec_lv1)
-        
+
         """
             refine HF subbands 📈
         """
@@ -572,7 +567,7 @@ class DualFeatureWaveletRestormer(nn.Module):
         v = haar.narrow(1, self.dim * 2, self.dim)
         d = haar.narrow(1, self.dim * 3, self.dim)
         x_hf = torch.cat([h, v, d], 1)
-        
+
         ##### encoder #####
         hf_out_enc_lv1 = self.hf_encoder_lv1(x_hf)
 
@@ -581,7 +576,7 @@ class DualFeatureWaveletRestormer(nn.Module):
 
         hf_inp_enc_lv3 = self.hf_down2_3(hf_out_enc_lv2)
         hf_out_enc_lv3 = self.hf_encoder_lv3(hf_inp_enc_lv3)
-        
+
         ##### bottleneck #####
         hf_latent = self.hf_latent(hf_out_enc_lv3)
 
@@ -599,9 +594,9 @@ class DualFeatureWaveletRestormer(nn.Module):
         hf_inp_dec_lv1 = torch.cat([hf_inp_dec_lv1, hf_out_enc_lv1], 1)
         hf_inp_dec_lv1 = self.hf_reduce_chan_lv1(hf_inp_dec_lv1)
         hf_out_dec_lv1 = self.hf_decoder_lv1(hf_inp_dec_lv1)
-        
+
         refined_hf = x_hf + self.hf_refinement(hf_out_dec_lv1)
-        
+
         """
             merge LF and HF subbands 🖇️
         """
