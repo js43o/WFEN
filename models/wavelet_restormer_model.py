@@ -25,7 +25,7 @@ class WaveletRestormerModel(BaseModel):
             "--lambda_ssim", type=float, default=0.0, help="weight for SSIM loss"
         )
         parser.add_argument(
-            "--lambda_vgg", type=float, default=0.001, help="weight for VGG loss"
+            "--lambda_vgg", type=float, default=0.0, help="weight for VGG loss"
         )
         parser.add_argument(
             "--lambda_adv",
@@ -35,6 +35,9 @@ class WaveletRestormerModel(BaseModel):
         )
         parser.add_argument(
             "--lambda_id", type=float, default=0.01, help="weight for identity loss"
+        )
+        parser.add_argument(
+            "--lambda_dists", type=float, default=0.0, help="weight for DISTS loss"
         )
 
         parser.add_argument(
@@ -78,7 +81,7 @@ class WaveletRestormerModel(BaseModel):
             if opt.lambda_ssim > 0:
                 print("➕ SSIM loss")
                 self.loss_names.append("SSIM")
-                self.compute_ssim = pyiqa.create_metric(
+                self.criterionSSIM = pyiqa.create_metric(
                     "ssim", as_loss=True, device=self.opt.data_device
                 )
 
@@ -131,6 +134,13 @@ class WaveletRestormerModel(BaseModel):
                 )
                 self.arcface_model.requires_grad_(False)
                 self.arcface_model.eval()
+
+            if opt.lambda_dists > 0:
+                print("➕ DISTS loss")
+                self.loss_names.append("DISTS")
+                self.criterionDISTS = pyiqa.create_metric(
+                    "dists", as_loss=True, device=self.opt.data_device
+                )
 
     def load_pretrain_model(
         self,
@@ -190,8 +200,8 @@ class WaveletRestormerModel(BaseModel):
 
         if self.opt.lambda_ssim > 0:
             self.loss_SSIM = (
-                1 - self.compute_ssim(self.img_SR, self.img_HR)
-            ) * self.opt.lambda_ssim
+                self.criterionSSIM(self.img_SR, self.img_HR) * self.opt.lambda_ssim
+            )
             loss += self.loss_SSIM
 
         if self.opt.lambda_vgg > 0:
@@ -228,6 +238,12 @@ class WaveletRestormerModel(BaseModel):
 
             self.loss_ID = self.criterionID(pred_embed, hr_embed) * self.opt.lambda_id
             loss += self.loss_ID
+
+        if self.opt.lambda_dists > 0:
+            self.loss_DISTS = (
+                self.criterionDISTS(self.img_SR, self.img_HR) * self.opt.lambda_dists
+            )
+            loss += self.loss_DISTS
 
         loss.backward()
 

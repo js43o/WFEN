@@ -16,12 +16,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/14-7_banana/celeba-hq_custom-aligned_validation/lr",
+    default="results/14-13_pix-adv-0.005/celeba-hq_custom-aligned_validation/pred",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="results/14-7_banana/celeba-hq_custom-aligned_validation/hr",
+    default="results/14-13_pix-adv-0.005/celeba-hq_custom-aligned_validation/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"
@@ -78,7 +78,9 @@ lmd = 0.0
 lmd_count = 0
 vif = 0.0
 
-for idx, filename in tqdm(enumerate(gt_filenames), desc="computing metrics", total=(len(gt_filenames))):
+for idx, filename in tqdm(
+    enumerate(gt_filenames), desc="computing metrics", total=(len(gt_filenames))
+):
     gt_filepath = os.path.join(args.gt_path, filename)
     gt_image = (
         to_tensor(
