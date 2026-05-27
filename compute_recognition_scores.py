@@ -12,8 +12,8 @@ from sklearn.metrics import roc_curve
 # ──────────────────────────────────────────
 # 설정
 # ──────────────────────────────────────────
-HQ_PATH = "results/14-13_pix-adv-0.005/lfw_custom-aligned_validation/hr"
-PRED_PATH = "results/14-13_pix-adv-0.005/lfw_custom-aligned_validation/pred"
+PRED_PATH = "results/15-2_wo-gated-ffn-exp-3.5/lfw_custom-aligned_validation"
+HQ_PATH = "/vcl2/Jiseung/datasets/lfw_custom-aligned_validation/gt"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH = 64
 NUM_POS = 10_000

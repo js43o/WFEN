@@ -7,53 +7,55 @@ from PIL import Image
 from tqdm import tqdm
 import torch
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     opt = TestOptions().parse()  # get test options
-    opt.num_threads = 0   # test code only supports num_threads = 1
-    opt.batch_size = 1    # test code only supports batch_size = 1
+    opt.num_threads = 0  # test code only supports num_threads = 1
+    opt.batch_size = 1  # test code only supports batch_size = 1
     opt.serial_batches = True  # disable data shuffling; comment this line if results on randomly chosen images are needed.
     opt.no_flip = True
-    
-    dataset = create_dataset(opt)  # create a dataset given opt.dataset_mode and other options
-    model = create_model(opt)      # create a model given opt.model and other options
+
+    dataset = create_dataset(
+        opt
+    )  # create a dataset given opt.dataset_mode and other options
+    model = create_model(opt)  # create a model given opt.model and other options
     if len(opt.pretrain_model_path):
         model.load_pretrain_model()
     else:
-        model.setup(opt)               # regular setup: load and print networks; create schedulers
+        model.setup(opt)  # regular setup: load and print networks; create schedulers
 
     if len(opt.save_as_dir):
         save_dir = opt.save_as_dir
     else:
-        save_dir = os.path.join(opt.results_dir, opt.name, '{}_{}'.format(opt.phase, opt.epoch))  
+        save_dir = os.path.join(
+            opt.results_dir, opt.name, "{}_{}".format(opt.phase, opt.epoch)
+        )
         if opt.load_iter > 0:  # load_iter is 0 by default
-            save_dir = '{:s}_iter{:d}'.format(save_dir, opt.load_iter)
+            save_dir = "{:s}_iter{:d}".format(save_dir, opt.load_iter)
     os.makedirs(save_dir, exist_ok=True)
 
-    print('creating result directory', save_dir)
-    
-    os.makedirs(os.path.join(save_dir, 'lr'), exist_ok=True)
-    os.makedirs(os.path.join(save_dir, 'pred'), exist_ok=True)
-    os.makedirs(os.path.join(save_dir, 'hr'), exist_ok=True)
+    print("creating result directory", save_dir)
+
+    # os.makedirs(os.path.join(save_dir, 'lr'), exist_ok=True)
+    os.makedirs(os.path.join(save_dir), exist_ok=True)
+    # os.makedirs(os.path.join(save_dir, 'hr'), exist_ok=True)
 
     network = model.netG
     network.eval()
 
     for i, data in tqdm(enumerate(dataset), total=len(dataset)):
-        inp, hr = data['LR'], data['HR']
+        inp, hr = data["LR"], data["HR"]
         with torch.no_grad():
             output = network(inp)
             if isinstance(output, tuple):
                 output = output[0]  # except commit_loss
-                        
-        sr_img = utils.tensor_to_img(output, normal=True)
-        lr_img = utils.tensor_to_img(inp, normal=True)
-        hr_img = utils.tensor_to_img(hr, normal=True)
 
-        img_path = data['HR_paths']     # get image paths
-        filename = img_path[0].split('/')[-1]
-        
-        Image.fromarray(lr_img).save(os.path.join(save_dir, 'lr', filename))
-        Image.fromarray(sr_img).save(os.path.join(save_dir, 'pred', filename))
-        Image.fromarray(hr_img).save(os.path.join(save_dir, 'hr', filename))
-        
+        sr_img = utils.tensor_to_img(output, normal=True)
+        # lr_img = utils.tensor_to_img(inp, normal=True)
+        # hr_img = utils.tensor_to_img(hr, normal=True)
+
+        img_path = data["HR_paths"]  # get image paths
+        filename = img_path[0].split("/")[-1]
+
+        # Image.fromarray(lr_img).save(os.path.join(save_dir, "lr", filename))
+        Image.fromarray(sr_img).save(os.path.join(save_dir, filename))
+        # Image.fromarray(hr_img).save(os.path.join(save_dir, "hr", filename))

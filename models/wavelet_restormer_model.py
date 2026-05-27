@@ -25,7 +25,7 @@ class WaveletRestormerModel(BaseModel):
             "--lambda_ssim", type=float, default=0.0, help="weight for SSIM loss"
         )
         parser.add_argument(
-            "--lambda_vgg", type=float, default=0.0, help="weight for VGG loss"
+            "--lambda_vgg", type=float, default=0.001, help="weight for VGG loss"
         )
         parser.add_argument(
             "--lambda_adv",
