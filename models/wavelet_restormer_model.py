@@ -6,7 +6,7 @@ import pyiqa
 from models import loss, networks
 from .base_model import BaseModel
 from utils import utils
-from models.arch.wavelet_restormer import WaveletRestormer
+from models.arch.wavelet_restormer import WaveletRestormer, WaveBFRAir, WaveBFRBreeze
 
 from models.arch.wfen import HaarWavelet
 from helpers.arcface.models import resnet_face18
@@ -59,7 +59,7 @@ class WaveletRestormerModel(BaseModel):
 
         self.in_channels = 3
 
-        self.netG = WaveletRestormer()
+        self.netG = WaveBFRBreeze()
         self.netG = networks.define_network(opt, self.netG)
         self.wavelet_transform = HaarWavelet(
             in_channels=self.in_channels, grad=False
