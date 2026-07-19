@@ -26,7 +26,7 @@ if __name__ == "__main__":
     timer = Timer()
 
     wandb.login()
-    project = "restormer_wfen-wrapper_offline-blind-ffhq"  # ⭐️ project name
+    project = "wavebfr"  # ⭐️ project name
     run_postfix = datetime.now().strftime("%Y%m%d_%H%M%S")
     if opt.continue_train and opt.run_name is not None:
         print("🚩 Continue training with run name %s" % opt.run_name)

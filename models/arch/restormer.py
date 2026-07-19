@@ -424,3 +424,238 @@ class Restormer(nn.Module):
             out_dec_level1 = self.output(out_dec_level1) + inp_img
 
         return out_dec_level1
+
+
+class LightweightHFBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.body = nn.Sequential(
+            nn.Conv2d(
+                channels,
+                channels,
+                kernel_size=3,
+                padding=1,
+                groups=channels,
+                bias=False,
+            ),
+            nn.Conv2d(
+                channels,
+                channels,
+                kernel_size=1,
+                bias=False,
+            ),
+            nn.GELU(),
+            nn.Conv2d(
+                channels,
+                channels,
+                kernel_size=3,
+                padding=1,
+                groups=channels,
+                bias=False,
+            ),
+            nn.Conv2d(
+                channels,
+                channels,
+                kernel_size=1,
+                bias=False,
+            ),
+        )
+
+    def forward(self, x):
+        return x + self.body(x)
+    
+    
+class FeatureAccumulator(nn.Module):
+    """
+    이전 auxiliary feature들을 순차적으로 누적한다.
+
+    memory:
+        지금까지 관찰한 이전 프레임들의 누적 feature
+
+    current:
+        현재 입력 프레임의 shallow feature
+    """
+
+    def __init__(self, dim, bias=False):
+        super().__init__()
+
+        # 현재 feature와 기존 memory를 보고 update 비율을 결정
+        self.update_gate = nn.Sequential(
+            nn.Conv2d(
+                dim * 2,
+                dim,
+                kernel_size=1,
+                bias=bias,
+            ),
+            nn.Sigmoid(),
+        )
+
+        # 새로운 memory 후보
+        self.candidate = nn.Sequential(
+            nn.Conv2d(
+                dim * 2,
+                dim,
+                kernel_size=1,
+                bias=bias,
+            ),
+            nn.GELU(),
+            nn.Conv2d(
+                dim,
+                dim,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                groups=dim,
+                bias=bias,
+            ),
+            nn.Conv2d(
+                dim,
+                dim,
+                kernel_size=1,
+                bias=bias,
+            ),
+        )
+
+    def forward(self, memory, current):
+        """
+        Args:
+            memory:  [B, C, H, W]
+            current: [B, C, H, W]
+
+        Returns:
+            updated_memory: [B, C, H, W]
+        """
+
+        combined = torch.cat([memory, current], dim=1)
+
+        gate = self.update_gate(combined)
+        candidate = self.candidate(combined)
+
+        updated_memory = (
+            (1.0 - gate) * memory
+            + gate * candidate
+        )
+
+        return updated_memory
+    
+    
+class ReferenceResidualFusion(nn.Module):
+    """
+    마지막 reference feature를 보존하면서
+    auxiliary memory에서 필요한 정보만 residual 형태로 추가한다.
+    """
+
+    def __init__(self, dim, bias=False):
+        super().__init__()
+
+        self.channel_gate = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(
+                dim * 2,
+                dim,
+                kernel_size=1,
+                bias=True,
+            ),
+            nn.Sigmoid(),
+        )
+
+        self.residual_fusion = nn.Sequential(
+            nn.Conv2d(
+                dim * 4,
+                dim * 2,
+                kernel_size=1,
+                bias=bias,
+            ),
+            nn.GELU(),
+
+            nn.Conv2d(
+                dim * 2,
+                dim * 2,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                groups=dim * 2,
+                bias=bias,
+            ),
+            nn.GELU(),
+
+            nn.Conv2d(
+                dim * 2,
+                dim,
+                kernel_size=1,
+                bias=bias,
+            ),
+        )
+
+        # 초기에는 multi-frame residual이 정확히 0이 되도록 설정.
+        # 따라서 pretrained WaveBFR의 동작을 최대한 유지한다.
+        nn.init.zeros_(self.residual_fusion[-1].weight)
+
+        if self.residual_fusion[-1].bias is not None:
+            nn.init.zeros_(self.residual_fusion[-1].bias)
+
+    def forward(self, reference, memory):
+        """
+        Args:
+            reference: 마지막 유효 프레임 feature
+            memory:    이전 프레임들의 누적 feature
+
+        Returns:
+            fused: reference + auxiliary residual
+        """
+
+        gate_input = torch.cat(
+            [reference, memory],
+            dim=1,
+        )
+
+        channel_gate = self.channel_gate(gate_input)
+
+        fusion_input = torch.cat(
+            [
+                reference,
+                memory,
+                reference - memory,
+                reference * memory,
+            ],
+            dim=1,
+        )
+
+        residual = self.residual_fusion(fusion_input)
+        residual = residual * channel_gate
+
+        return reference + residual
+    
+class ResidualShallowEncoder(nn.Module):
+    def __init__(
+        self,
+        dim,
+        heads,
+        ffn_expansion_factor,
+        bias,
+        LayerNorm_type,
+    ):
+        super().__init__()
+
+        self.block = TransformerBlock(
+            dim=dim,
+            num_heads=heads,
+            ffn_expansion_factor=ffn_expansion_factor,
+            bias=bias,
+            LayerNorm_type=LayerNorm_type,
+        )
+
+        self.project = nn.Conv2d(
+            dim,
+            dim,
+            kernel_size=1,
+            bias=bias,
+        )
+
+        nn.init.zeros_(self.project.weight)
+
+        if self.project.bias is not None:
+            nn.init.zeros_(self.project.bias)
+
+    def forward(self, x):
+        return x + self.project(self.block(x))

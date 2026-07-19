@@ -1,240 +1,10 @@
-## Restormer: Efficient Transformer for High-Resolution Image Restoration
-## Syed Waqas Zamir, Aditya Arora, Salman Khan, Munawar Hayat, Fahad Shahbaz Khan, and Ming-Hsuan Yang
-## https://arxiv.org/abs/2111.09881
-
-
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import numbers
-
-from einops import rearrange
+from models.arch.restormer import OverlapPatchEmbed, Downsample, Upsample, TransformerBlock, LightweightHFBlock, FeatureAccumulator, ReferenceResidualFusion, ResidualShallowEncoder
 from models.arch.wfen import HaarWavelet
 
-##########################################################################
-## Layer Norm
 
-
-# 4차원 텐서에서 spatial 차원을 flatten하여 3차원 텐서로 변환
-def to_3d(x):
-    return rearrange(x, "b c h w -> b (h w) c")
-
-
-# 3차원 텐서에서 spatial 차원을 unflatten하여 4차원 텐서로 변환
-def to_4d(x, h, w):
-    return rearrange(x, "b (h w) c -> b c h w", h=h, w=w)
-
-
-# Bias를 더하지 않는 LayerNorm 연산 블록
-class BiasFree_LayerNorm(nn.Module):
-    def __init__(self, normalized_shape):
-        super(BiasFree_LayerNorm, self).__init__()
-        if isinstance(normalized_shape, numbers.Integral):
-            normalized_shape = (normalized_shape,)
-        normalized_shape = torch.Size(normalized_shape)
-
-        assert len(normalized_shape) == 1
-
-        self.weight = nn.Parameter(
-            torch.ones(normalized_shape)
-        )  # 가중치는 1부터 시작(초기 영향 최소화)해서 학습을 통해 조정
-        self.normalized_shape = normalized_shape
-
-    def forward(self, x):
-        sigma = x.var(-1, keepdim=True, unbiased=False)
-        return x / torch.sqrt(sigma + 1e-5) * self.weight
-
-
-# Bias를 더하는 LayerNorm 연산 블록
-class WithBias_LayerNorm(nn.Module):
-    def __init__(self, normalized_shape):
-        super(WithBias_LayerNorm, self).__init__()
-        if isinstance(normalized_shape, numbers.Integral):
-            normalized_shape = (normalized_shape,)
-        normalized_shape = torch.Size(normalized_shape)
-
-        assert len(normalized_shape) == 1
-
-        self.weight = nn.Parameter(torch.ones(normalized_shape))
-        self.bias = nn.Parameter(torch.zeros(normalized_shape))
-        self.normalized_shape = normalized_shape
-
-    def forward(self, x):
-        mu = x.mean(-1, keepdim=True)
-        sigma = x.var(-1, keepdim=True, unbiased=False)
-        return (x - mu) / torch.sqrt(sigma + 1e-5) * self.weight + self.bias
-
-
-class LayerNorm(nn.Module):
-    def __init__(self, dim, LayerNorm_type):
-        super(LayerNorm, self).__init__()
-        if LayerNorm_type == "BiasFree":
-            self.body = BiasFree_LayerNorm(dim)
-        else:
-            self.body = WithBias_LayerNorm(dim)
-
-    def forward(self, x):
-        h, w = x.shape[-2:]
-        return to_4d(self.body(to_3d(x)), h, w)
-
-
-##########################################################################
-## Gated-Dconv Feed-Forward Network (GDFN)
-## Restormer의 주요 기여 1. depth-wise conv와 gate 연산이 추가된 FFN 블록
-## 입출력의 해상도와 채널 수는 유지됨
-class FeedForward(nn.Module):
-    def __init__(self, dim, ffn_expansion_factor, bias):
-        super(FeedForward, self).__init__()
-
-        hidden_features = int(dim * ffn_expansion_factor)
-
-        # 논문 figure와 달리, 실제로는 x1, x2를 하나의 텐서에서 개별 처리(group 인자 이용)
-        self.project_in = nn.Conv2d(dim, hidden_features * 2, kernel_size=1, bias=bias)
-
-        self.dwconv = nn.Conv2d(
-            hidden_features * 2,
-            hidden_features * 2,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            groups=hidden_features * 2,
-            bias=bias,
-        )
-
-        self.project_out = nn.Conv2d(hidden_features, dim, kernel_size=1, bias=bias)
-
-    def forward(self, x):
-        x = self.project_in(x)
-        x1, x2 = self.dwconv(x).chunk(2, dim=1)
-        x = F.gelu(x1) * x2
-        x = self.project_out(x)
-        return x
-
-
-##########################################################################
-## Multi-DConv Head Transposed Self-Attention (MDTA)
-## Restormer의 주요 기여 2. depth-wise conv + 채널 축 self-attention 블록
-## 입출력의 해상도와 채널 수는 유지됨
-class Attention(nn.Module):
-    def __init__(self, dim, num_heads, bias):
-        super(Attention, self).__init__()
-        self.num_heads = num_heads
-        self.temperature = nn.Parameter(torch.ones(num_heads, 1, 1))
-
-        self.qkv = nn.Conv2d(dim, dim * 3, kernel_size=1, bias=bias)
-        self.qkv_dwconv = nn.Conv2d(
-            dim * 3,
-            dim * 3,
-            kernel_size=3,
-            stride=1,
-            padding=1,
-            groups=dim * 3,
-            bias=bias,
-        )
-        self.project_out = nn.Conv2d(dim, dim, kernel_size=1, bias=bias)
-
-    def forward(self, x):
-        b, c, h, w = x.shape
-
-        qkv = self.qkv_dwconv(self.qkv(x))
-        q, k, v = qkv.chunk(3, dim=1)  # 채널 수를 3배로 확장 후 q/k/v로 분할
-
-        # 채널 축을 head로 나누어 multi-head attention 준비
-        q = rearrange(q, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-        k = rearrange(k, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-        v = rearrange(v, "b (head c) h w -> b head c (h w)", head=self.num_heads)
-
-        q = torch.nn.functional.normalize(q, dim=-1)
-        k = torch.nn.functional.normalize(k, dim=-1)
-
-        # (c, hw) @ (hw, c) => (c, c) attention map
-        attn = (q @ k.transpose(-2, -1)) * self.temperature
-        attn = attn.softmax(dim=-1)
-
-        out = attn @ v  # (c, c) @ (c, hw) => (c, hw)
-
-        out = rearrange(
-            out, "b head c (h w) -> b (head c) h w", head=self.num_heads, h=h, w=w
-        )
-
-        out = self.project_out(out)
-
-        return out
-
-
-##########################################################################
-# norm -> attn -> (skip) -> norm -> ffn -> (skip)으로 구성된 기본 Transformer 블록
-class TransformerBlock(nn.Module):
-    def __init__(self, dim, num_heads, ffn_expansion_factor, bias, LayerNorm_type):
-        super(TransformerBlock, self).__init__()
-
-        self.norm1 = LayerNorm(dim, LayerNorm_type)
-        self.attn = Attention(dim, num_heads, bias)
-        self.norm2 = LayerNorm(dim, LayerNorm_type)
-        self.ffn = FeedForward(dim, ffn_expansion_factor, bias)
-
-    def forward(self, x):
-        x = x + self.attn(self.norm1(x))
-        x = x + self.ffn(self.norm2(x))
-
-        return x
-
-
-##########################################################################
-## Overlapped image patch embedding with 3x3 Conv
-## 입력 텐서를 임베딩 차원으로 변환
-## 해상도는 유지, 채널 수는 embed_dim으로 확장
-class OverlapPatchEmbed(nn.Module):
-    def __init__(self, in_c=3, embed_dim=48, bias=False):
-        super(OverlapPatchEmbed, self).__init__()
-
-        self.proj = nn.Conv2d(
-            in_c, embed_dim, kernel_size=3, stride=1, padding=1, bias=bias
-        )
-
-    def forward(self, x):
-        x = self.proj(x)
-
-        return x
-
-
-##########################################################################
-## Resizing modules
-## 해상도는 2배 감소, 채널 수는 2배 증가
-class Downsample(nn.Module):
-    def __init__(self, n_feat):
-        super(Downsample, self).__init__()
-
-        self.body = nn.Sequential(
-            nn.Conv2d(
-                n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False
-            ),
-            nn.PixelUnshuffle(2),
-        )
-
-    def forward(self, x):
-        return self.body(x)
-
-
-## 해상도는 2배 증가, 채널 수는 2배 감소
-class Upsample(nn.Module):
-    def __init__(self, n_feat):
-        super(Upsample, self).__init__()
-
-        self.body = nn.Sequential(
-            nn.Conv2d(
-                n_feat, n_feat * 2, kernel_size=3, stride=1, padding=1, bias=False
-            ),
-            nn.PixelShuffle(2),
-        )
-
-    def forward(self, x):
-        return self.body(x)
-
-
-##########################################################################
-## Restormer 네트워크 아키텍처
-class WaveletRestormer(nn.Module):
+class WaveBFR(nn.Module):
     def __init__(
         self,
         inp_channels=3,
@@ -248,8 +18,8 @@ class WaveletRestormer(nn.Module):
         LayerNorm_type="WithBias",  ## Other option 'BiasFree'
     ):
 
-        print("🌊 Wavelet-Restormer")
-        super(WaveletRestormer, self).__init__()
+        print("🌊 WaveBFR")
+        super(WaveBFR, self).__init__()
 
         self.inp_channels = inp_channels
         self.dim = dim
@@ -257,9 +27,7 @@ class WaveletRestormer(nn.Module):
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
         self.wavelet_transform = HaarWavelet(dim, grad=False)
 
-        """
-            LF subbands network 📉
-        """
+        # LF subbands network 📉
         self.lf_encoder_lv1 = nn.Sequential(
             *[
                 TransformerBlock(
@@ -378,9 +146,7 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        """
-            HF subbands network 📈
-        """
+        # HF subbands network 📈
         self.hf_encoder_lv1 = nn.Sequential(
             *[
                 TransformerBlock(
@@ -499,9 +265,7 @@ class WaveletRestormer(nn.Module):
             ]
         )
 
-        """
-            image-level 🖇️
-        """
+        # image-level 🖇️
         self.last_refinement = nn.Sequential(
             *[
                 TransformerBlock(
@@ -526,9 +290,7 @@ class WaveletRestormer(nn.Module):
         x = self.patch_embed(inp_img)
         haar = self.wavelet_transform(x, rev=False)
 
-        """
-            refine LF subband 📉
-        """
+        # refine LF subband 📉
         a = haar.narrow(1, 0, self.dim)
 
         ##### encoder #####
@@ -560,9 +322,7 @@ class WaveletRestormer(nn.Module):
 
         refined_lf = a + self.lf_refinement(lf_out_dec_lv1)
 
-        """
-            refine HF subbands 📈
-        """
+        # refine HF subbands 📈
         h = haar.narrow(1, self.dim, self.dim)
         v = haar.narrow(1, self.dim * 2, self.dim)
         d = haar.narrow(1, self.dim * 3, self.dim)
@@ -597,9 +357,7 @@ class WaveletRestormer(nn.Module):
 
         refined_hf = x_hf + self.hf_refinement(hf_out_dec_lv1)
 
-        """
-            merge LF and HF subbands 🖇️
-        """
+        # merge LF and HF subbands 🖇️
         restored = self.wavelet_transform(
             torch.cat([refined_lf, refined_hf], 1), rev=True
         )
@@ -607,45 +365,6 @@ class WaveletRestormer(nn.Module):
         restored = self.output(restored) + inp_img
 
         return restored
-
-
-class LightweightHFBlock(nn.Module):
-    def __init__(self, channels):
-        super().__init__()
-        self.body = nn.Sequential(
-            nn.Conv2d(
-                channels,
-                channels,
-                kernel_size=3,
-                padding=1,
-                groups=channels,
-                bias=False,
-            ),
-            nn.Conv2d(
-                channels,
-                channels,
-                kernel_size=1,
-                bias=False,
-            ),
-            nn.GELU(),
-            nn.Conv2d(
-                channels,
-                channels,
-                kernel_size=3,
-                padding=1,
-                groups=channels,
-                bias=False,
-            ),
-            nn.Conv2d(
-                channels,
-                channels,
-                kernel_size=1,
-                bias=False,
-            ),
-        )
-
-    def forward(self, x):
-        return x + self.body(x)
 
 
 class WaveBFRAir(nn.Module):
@@ -746,7 +465,7 @@ class WaveBFRAir(nn.Module):
             ]
         )
 
-        # HF subbands branch ☀️ 
+        # HF subbands branch ☀️
         self.hf_refine = nn.Sequential(
             LightweightHFBlock(dim * 3),
             LightweightHFBlock(dim * 3),
@@ -801,6 +520,7 @@ class WaveBFRAir(nn.Module):
         restored = self.output(restored) + inp_img
 
         return restored
+
 
 class WaveBFRBreeze(nn.Module):
     def __init__(
@@ -1050,3 +770,609 @@ class WaveBFRBreeze(nn.Module):
         restored = self.output(restored) + inp_img
 
         return restored
+
+
+class WaveBFRBreezeMultiframe(nn.Module):
+    def __init__(
+        self,
+        inp_channels=3,
+        out_channels=3,
+        dim=16,  # 임베딩 채널 수
+        num_blocks=[1, 1, 1],  # encoder/decoder 각 계층의 Transformer 블록 수
+        heads=[1, 2, 4],  # 각 계층 내 Transformer의 multi-head 개수 정의
+        ffn_expansion_factor=2.66,  # FFN 블록의 hidden 채널 확장 비율
+        bias=False,  # attention 연산에 쓰이는 conv 레이어의 bias 사용 여부
+        LayerNorm_type="WithBias",  ## Other option 'BiasFree'
+    ):
+
+        print("🏷️ WaveBFR Breeze (Multiframe ver.)")
+        super(WaveBFRBreezeMultiframe, self).__init__()
+
+        self.inp_channels = inp_channels
+        self.dim = dim
+
+        self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
+        
+        # 요청한 추가 shallow Transformer block
+        self.shallow_refine = ResidualShallowEncoder(
+            dim=dim,
+            heads=heads[0],
+            ffn_expansion_factor=ffn_expansion_factor,
+            bias=bias,
+            LayerNorm_type=LayerNorm_type,
+        )
+
+        # 이전 프레임 feature 누적
+        self.feature_accumulator = FeatureAccumulator(
+            dim=dim,
+            bias=bias,
+        )
+
+        # 마지막 reference와 누적 feature 결합
+        self.reference_fusion = ReferenceResidualFusion(
+            dim=dim,
+            bias=bias,
+        )
+        
+        self.wavelet_transform = HaarWavelet(dim, grad=False)
+
+        # LF subbands network 🌊
+        self.lf_encoder_lv1 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=dim,
+                    num_heads=heads[0],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[0])
+            ]
+        )
+        self.lf_down1_2 = Downsample(dim)
+
+        self.lf_encoder_lv2 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**1),
+                    num_heads=heads[1],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[1])
+            ]
+        )
+        self.lf_down2_3 = Downsample(int(dim * 2**1))
+
+        self.lf_latent = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**2),
+                    num_heads=heads[2],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[2])
+            ]
+        )
+
+        self.lf_up3_2 = Upsample(int(dim * 2**2))
+        self.lf_reduce_chan_lv2 = nn.Conv2d(
+            int(dim * 2**2), int(dim * 2**1), kernel_size=1, bias=bias
+        )
+        self.lf_decoder_lv2 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**1),
+                    num_heads=heads[1],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[1])
+            ]
+        )
+
+        self.lf_up2_1 = Upsample(int(dim * 2**1))
+        self.lf_reduce_chan_lv1 = nn.Conv2d(
+            int(dim * 2**1), int(dim), kernel_size=1, bias=bias
+        )
+        self.lf_decoder_lv1 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim),
+                    num_heads=heads[0],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[0])
+            ]
+        )
+
+        # HF subbands network ☀️
+        self.hf_project_in = nn.Conv2d(dim * 3, dim, kernel_size=1, bias=bias)
+        self.hf_encoder_lv1 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=dim,
+                    num_heads=heads[0],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[0])
+            ]
+        )
+        self.hf_down1_2 = Downsample(dim)
+
+        self.hf_encoder_lv2 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**1),
+                    num_heads=heads[1],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[1])
+            ]
+        )
+        self.hf_down2_3 = Downsample(int(dim * 2**1))
+
+        self.hf_latent = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**2),
+                    num_heads=heads[2],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[2])
+            ]
+        )
+
+        self.hf_up3_2 = Upsample(int(dim * 2**2))
+        self.hf_reduce_chan_lv2 = nn.Conv2d(
+            int(dim * 2**2), int(dim * 2**1), kernel_size=1, bias=bias
+        )
+        self.hf_decoder_lv2 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim * 2**1),
+                    num_heads=heads[1],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[1])
+            ]
+        )
+
+        self.hf_up2_1 = Upsample(int(dim * 2**1))
+        self.hf_reduce_chan_lv1 = nn.Conv2d(
+            int(dim * 2**1), int(dim), kernel_size=1, bias=bias
+        )
+        self.hf_decoder_lv1 = nn.Sequential(
+            *[
+                TransformerBlock(
+                    dim=int(dim),
+                    num_heads=heads[0],
+                    ffn_expansion_factor=ffn_expansion_factor,
+                    bias=bias,
+                    LayerNorm_type=LayerNorm_type,
+                )
+                for i in range(num_blocks[0])
+            ]
+        )
+        self.hf_project_out = nn.Conv2d(dim, dim * 3, kernel_size=1, bias=bias)
+
+        # image-level 🖇️
+        self.output = nn.Sequential(
+            nn.Conv2d(
+                int(dim), out_channels, kernel_size=3, stride=1, padding=1, bias=bias
+            )
+        )
+
+    def encode_shallow(self, image):
+        """
+        Args:
+            image: [B, 3, H, W]
+
+        Returns:
+            feature: [B, dim, H, W]
+        """
+
+        feature = self.patch_embed(image)
+        feature = self.shallow_refine(feature)
+
+        return feature
+    
+    def accumulate_multiframe_features(
+        self,
+        frames,
+        frame_mask,
+    ):
+        """
+        Args:
+            frames:
+                [B, T, 3, H, W]
+
+            frame_mask:
+                [B, T]
+                유효 프레임이면 True.
+                현재 데이터셋에서는 앞부분만 True이고,
+                나머지 뒤쪽은 padding False.
+
+        Returns:
+            fused_feature:
+                [B, dim, H, W]
+
+            reference_image:
+                [B, 3, H, W]
+                각 sample의 마지막 유효 LR 프레임
+        """
+
+        if frames.ndim != 5:
+            raise ValueError(
+                f"frames must have shape [B,T,C,H,W], "
+                f"but got {tuple(frames.shape)}"
+            )
+
+        if frame_mask.ndim != 2:
+            raise ValueError(
+                f"frame_mask must have shape [B,T], "
+                f"but got {tuple(frame_mask.shape)}"
+            )
+
+        batch_size, num_slots, channels, height, width = frames.shape
+
+        frame_mask = frame_mask.bool()
+
+        num_valid_frames = frame_mask.long().sum(dim=1)
+
+        if torch.any(num_valid_frames == 0):
+            raise ValueError(
+                "Every sample must contain at least one valid frame."
+            )
+
+        last_indices = num_valid_frames - 1
+
+        # --------------------------------------------------------------
+        # 모든 frame을 한 번에 shallow encode
+        # --------------------------------------------------------------
+
+        flat_frames = frames.reshape(
+            batch_size * num_slots,
+            channels,
+            height,
+            width,
+        )
+
+        flat_features = self.encode_shallow(flat_frames)
+
+        _, feature_channels, feature_height, feature_width = (
+            flat_features.shape
+        )
+
+        features = flat_features.reshape(
+            batch_size,
+            num_slots,
+            feature_channels,
+            feature_height,
+            feature_width,
+        )
+
+        batch_indices = torch.arange(
+            batch_size,
+            device=frames.device,
+        )
+
+        # 각 sample의 마지막 유효 frame
+        reference_feature = features[
+            batch_indices,
+            last_indices,
+        ]
+
+        reference_image = frames[
+            batch_indices,
+            last_indices,
+        ]
+
+        # --------------------------------------------------------------
+        # 마지막 프레임을 제외한 auxiliary frame 누적
+        # --------------------------------------------------------------
+
+        memory = torch.zeros_like(reference_feature)
+
+        has_memory = torch.zeros(
+            batch_size,
+            dtype=torch.bool,
+            device=frames.device,
+        )
+
+        for frame_index in range(num_slots):
+            current_feature = features[:, frame_index]
+
+            # 현재 위치가 유효하면서 마지막 reference보다 앞선 경우
+            is_auxiliary = (
+                frame_mask[:, frame_index]
+                & (frame_index < last_indices)
+            )
+
+            if not torch.any(is_auxiliary):
+                continue
+
+            update_mask = is_auxiliary.view(
+                batch_size,
+                1,
+                1,
+                1,
+            )
+
+            first_frame_mask = (
+                is_auxiliary & (~has_memory)
+            ).view(
+                batch_size,
+                1,
+                1,
+                1,
+            )
+
+            # 첫 auxiliary frame은 그대로 memory 초기값으로 사용
+            memory = torch.where(
+                first_frame_mask,
+                current_feature,
+                memory,
+            )
+
+            # 이미 memory가 있는 sample만 recurrent update
+            recurrent_mask = (
+                is_auxiliary & has_memory
+            ).view(
+                batch_size,
+                1,
+                1,
+                1,
+            )
+
+            updated_memory = self.feature_accumulator(
+                memory,
+                current_feature,
+            )
+
+            memory = torch.where(
+                recurrent_mask,
+                updated_memory,
+                memory,
+            )
+
+            has_memory = has_memory | is_auxiliary
+
+        # auxiliary가 없는 sample은 memory=0
+        # 현재 데이터셋은 최소 5장이므로 실제로는 항상 memory가 존재함.
+        fused_feature = self.reference_fusion(
+            reference_feature,
+            memory,
+        )
+
+        return fused_feature, reference_image
+
+    def restore_from_feature(
+        self,
+        feature,
+        reference_image,
+    ):
+        """
+        Args:
+            feature:
+                fusion이 완료된 dim-channel feature
+
+            reference_image:
+                마지막 LR 프레임.
+                최종 residual connection에 사용.
+
+        Returns:
+            restored image
+        """
+
+        haar = self.wavelet_transform(
+            feature,
+            rev=False,
+        )
+
+        # ==============================================================
+        # LF branch
+        # ==============================================================
+
+        a = haar.narrow(
+            1,
+            0,
+            self.dim,
+        )
+
+        lf_out_enc_lv1 = self.lf_encoder_lv1(a)
+        lf_inp_enc_lv2 = self.lf_down1_2(lf_out_enc_lv1)
+
+        lf_out_enc_lv2 = self.lf_encoder_lv2(lf_inp_enc_lv2)
+        lf_inp_enc_lv3 = self.lf_down2_3(lf_out_enc_lv2)
+
+        lf_latent = self.lf_latent(lf_inp_enc_lv3)
+
+        lf_inp_dec_lv2 = self.lf_up3_2(lf_latent)
+
+        lf_inp_dec_lv2 = torch.cat(
+            [lf_inp_dec_lv2, lf_out_enc_lv2],
+            dim=1,
+        )
+
+        lf_inp_dec_lv2 = self.lf_reduce_chan_lv2(
+            lf_inp_dec_lv2
+        )
+
+        lf_out_dec_lv2 = self.lf_decoder_lv2(
+            lf_inp_dec_lv2
+        )
+
+        lf_inp_dec_lv1 = self.lf_up2_1(
+            lf_out_dec_lv2
+        )
+
+        lf_inp_dec_lv1 = torch.cat(
+            [lf_inp_dec_lv1, lf_out_enc_lv1],
+            dim=1,
+        )
+
+        lf_inp_dec_lv1 = self.lf_reduce_chan_lv1(
+            lf_inp_dec_lv1
+        )
+
+        lf_out_dec_lv1 = self.lf_decoder_lv1(
+            lf_inp_dec_lv1
+        )
+
+        # ==============================================================
+        # HF branch
+        # ==============================================================
+
+        h = haar.narrow(
+            1,
+            self.dim,
+            self.dim,
+        )
+
+        v = haar.narrow(
+            1,
+            self.dim * 2,
+            self.dim,
+        )
+
+        d = haar.narrow(
+            1,
+            self.dim * 3,
+            self.dim,
+        )
+
+        x_hf = self.hf_project_in(
+            torch.cat([h, v, d], dim=1)
+        )
+
+        hf_out_enc_lv1 = self.hf_encoder_lv1(x_hf)
+        hf_inp_enc_lv2 = self.hf_down1_2(hf_out_enc_lv1)
+
+        hf_out_enc_lv2 = self.hf_encoder_lv2(hf_inp_enc_lv2)
+        hf_inp_enc_lv3 = self.hf_down2_3(hf_out_enc_lv2)
+
+        hf_latent = self.hf_latent(hf_inp_enc_lv3)
+
+        hf_inp_dec_lv2 = self.hf_up3_2(hf_latent)
+
+        hf_inp_dec_lv2 = torch.cat(
+            [hf_inp_dec_lv2, hf_out_enc_lv2],
+            dim=1,
+        )
+
+        hf_inp_dec_lv2 = self.hf_reduce_chan_lv2(
+            hf_inp_dec_lv2
+        )
+
+        hf_out_dec_lv2 = self.hf_decoder_lv2(
+            hf_inp_dec_lv2
+        )
+
+        hf_inp_dec_lv1 = self.hf_up2_1(
+            hf_out_dec_lv2
+        )
+
+        hf_inp_dec_lv1 = torch.cat(
+            [hf_inp_dec_lv1, hf_out_enc_lv1],
+            dim=1,
+        )
+
+        hf_inp_dec_lv1 = self.hf_reduce_chan_lv1(
+            hf_inp_dec_lv1
+        )
+
+        hf_out_dec_lv1 = self.hf_decoder_lv1(
+            hf_inp_dec_lv1
+        )
+
+        hf_out_dec_lv1 = self.hf_project_out(
+            hf_out_dec_lv1
+        )
+
+        # ==============================================================
+        # LF/HF merge
+        # ==============================================================
+
+        restored_feature = self.wavelet_transform(
+            torch.cat(
+                [lf_out_dec_lv1, hf_out_dec_lv1],
+                dim=1,
+            ),
+            rev=True,
+        )
+
+        restored = (
+            self.output(restored_feature)
+            + reference_image
+        )
+
+        return restored
+
+
+    def forward(
+        self,
+        inp_img,
+        frame_mask=None,
+    ):
+        """
+        Single-frame:
+            inp_img: [B, 3, H, W]
+
+        Multi-frame:
+            inp_img:    [B, T, 3, H, W]
+            frame_mask: [B, T]
+        """
+
+        # --------------------------------------------------------------
+        # 기존 single-frame 사용
+        # --------------------------------------------------------------
+        if inp_img.ndim == 4:
+            feature = self.encode_shallow(inp_img)
+
+            return self.restore_from_feature(
+                feature=feature,
+                reference_image=inp_img,
+            )
+
+        # --------------------------------------------------------------
+        # Multi-frame 사용
+        # --------------------------------------------------------------
+        if inp_img.ndim == 5:
+            if frame_mask is None:
+                frame_mask = torch.ones(
+                    inp_img.shape[:2],
+                    dtype=torch.bool,
+                    device=inp_img.device,
+                )
+
+            fused_feature, reference_image = (
+                self.accumulate_multiframe_features(
+                    frames=inp_img,
+                    frame_mask=frame_mask,
+                )
+            )
+
+            return self.restore_from_feature(
+                feature=fused_feature,
+                reference_image=reference_image,
+            )
+
+        raise ValueError(
+            f"Unsupported input shape: {tuple(inp_img.shape)}"
+        )
+    

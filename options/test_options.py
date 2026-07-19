@@ -27,10 +27,10 @@ class TestOptions(BaseOptions):
         parser.add_argument('--blur_kernel_size', nargs='+', type=int, default=[19, 20], help='blur kernel size')
         parser.add_argument('--kernel_list', nargs='+', type=str, default=['iso', 'aniso'], help='kernel list')
         parser.add_argument('--kernel_prob', nargs='+', type=float, default=[0.5, 0.5], help='kernel probability')
-        parser.add_argument('--blur_sigma', nargs='+', type=float, default=[0.1, 10], help='blur sigma')
+        parser.add_argument('--blur_sigma', nargs='+', type=float, default=[0.1, 1], help='blur sigma')
         parser.add_argument('--downsample_range', nargs='+', type=float, default=[0.8, 8], help='downsample range')
-        parser.add_argument('--noise_range', nargs='+', type=int, default=[0, 20], help='noise range')
-        parser.add_argument('--jpeg_range', nargs='+', type=int, default=[60, 100], help='jpeg range')
+        parser.add_argument('--noise_range', nargs='+', type=int, default=[0, 5], help='noise range')
+        parser.add_argument('--jpeg_range', nargs='+', type=int, default=[80, 100], help='jpeg range')
 
         parser.add_argument('--no_wavelet', action='store_true', help='disable wavelet transform')
         parser.add_argument('--is_pretrain', action='store_true', help='is pretrain mode')

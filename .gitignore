@@ -1,5 +1,6 @@
 pretrain_models/*
 check_points/*
+output/*
 results*
 temp*
 

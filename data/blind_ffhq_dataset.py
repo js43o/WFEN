@@ -1,9 +1,9 @@
 import os
 from glob import glob
 import random
+import math
 import numpy as np
 import cv2
-import math
 import torch
 from torchvision.transforms.functional import normalize
 from basicsr.data import degradations as degradations
@@ -33,9 +33,7 @@ class BlindFFHQDataset(BaseDataset):
         self.noise_range = opt.noise_range
         self.jpeg_range = opt.jpeg_range
 
-    def get_img_names(
-        self,
-    ):
+    def get_img_names(self):
         img_names = []
         for ext in ["png", "jpg", "jpeg"]:
             img_names.extend([x for x in glob(os.path.join(self.img_dir, "*." + ext))])
@@ -62,8 +60,7 @@ class BlindFFHQDataset(BaseDataset):
         )
 
         # load gt image
-        img_path = os.path.join(self.img_dir, self.img_names[index])
-        hr_img = cv2.imread(img_path)
+        hr_img = cv2.imread(self.img_names[index])
         hr_img = cv2.resize(
             hr_img, dsize=(512, 512), interpolation=mode
         )  # resize for degradation
@@ -118,7 +115,7 @@ class BlindFFHQDataset(BaseDataset):
         normalize(hr_img, self.mean, self.std, inplace=True)
         normalize(lr_img, self.mean, self.std, inplace=True)
 
-        return {"HR": hr_img, "LR": lr_img, "HR_paths": img_path}
+        return {"HR": hr_img, "LR": lr_img, "HR_paths": self.img_names[index]}
 
     def __len__(self):
         return len(self.img_names)

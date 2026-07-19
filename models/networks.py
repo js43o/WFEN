@@ -1,4 +1,4 @@
-from models.arch.blocks import *
+from models.arch.wfen import *
 import torch
 from torch import nn
 from torch.nn import init

@@ -12,8 +12,8 @@ from sklearn.metrics import roc_curve
 # ──────────────────────────────────────────
 # 설정
 # ──────────────────────────────────────────
-PRED_PATH = "results/15-2_wo-gated-ffn-exp-3.5/lfw_custom-aligned_validation"
-HQ_PATH = "/vcl2/Jiseung/datasets/lfw_custom-aligned_validation/gt"
+PRED_PATH = "results/wacv_ver/lfw_custom-aligned_validation_112_easy"
+HQ_PATH = "../../datasets/lfw_custom-aligned_validation_112_easy/gt"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH = 64
 NUM_POS = 10_000
@@ -46,7 +46,7 @@ def get_identity(filename: str) -> str:
     return filename.rsplit("_", 1)[0]
 
 
-def extract_features(folder: str, filenames: list[str]) -> np.ndarray:
+def extract_features(folder: str, filenames: list) -> np.ndarray:
     feats = []
     for i in tqdm(
         range(0, len(filenames), BATCH), desc=f"  {os.path.basename(folder)}"
