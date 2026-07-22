@@ -772,7 +772,7 @@ class WaveBFRBreeze(nn.Module):
         return restored
 
 
-class WaveBFRBreezeMultiframe(nn.Module):
+class MultiFrameWaveBFRBreeze(nn.Module):
     def __init__(
         self,
         inp_channels=3,
@@ -785,8 +785,8 @@ class WaveBFRBreezeMultiframe(nn.Module):
         LayerNorm_type="WithBias",  ## Other option 'BiasFree'
     ):
 
-        print("🏷️ WaveBFR Breeze (Multiframe ver.)")
-        super(WaveBFRBreezeMultiframe, self).__init__()
+        print("🏷️ Multi-Frame WaveBFR Breeze")
+        super(MultiFrameWaveBFRBreeze, self).__init__()
 
         self.inp_channels = inp_channels
         self.dim = dim
@@ -991,7 +991,7 @@ class WaveBFRBreezeMultiframe(nn.Module):
 
         return feature
     
-    def accumulate_multiframe_features(
+    def accumulate_multi_frame_features(
         self,
         frames,
         frame_mask,
@@ -1361,7 +1361,7 @@ class WaveBFRBreezeMultiframe(nn.Module):
                 )
 
             fused_feature, reference_image = (
-                self.accumulate_multiframe_features(
+                self.accumulate_multi_frame_features(
                     frames=inp_img,
                     frame_mask=frame_mask,
                 )

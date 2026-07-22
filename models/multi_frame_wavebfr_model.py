@@ -9,12 +9,12 @@ import torch.optim as optim
 from models import loss, networks
 from .base_model import BaseModel
 from utils import utils
-from models.arch.wavebfr import WaveBFRBreeze
+from models.arch.wavebfr import MultiFrameWaveBFRBreeze
 from models.arch.wfen import HaarWavelet
 from helpers.arcface.models import resnet_face18
 
 
-class WaveBFRModel(BaseModel):
+class MultiFrameWaveBFRModel(BaseModel):
     """Fine-tuning wrapper for multi-frame WaveBFRBreeze.
 
     Expected dataset output:
@@ -67,6 +67,7 @@ class WaveBFRModel(BaseModel):
         )
 
         # Multi-frame fine-tuning options
+        parser.add_argument('--pretrain_model_path', type=str, required=True, help='load pretrain model path if specified')
         parser.add_argument(
             "--backbone_lr_scale",
             type=float,
@@ -97,6 +98,12 @@ class WaveBFRModel(BaseModel):
             action="store_true",
             help="retain full LR sequence for custom visualization/debugging",
         )
+        
+        parser.add_argument("--min_frames", type=int, default=5)
+        parser.add_argument("--max_frames", type=int, default=10)
+        parser.add_argument("--min_lr_size", type=int, default=16)
+        parser.add_argument("--max_lr_size", type=int, default=112)
+        parser.add_argument("--allow_duplicate_frames", action="store_true")
 
         return parser
 
@@ -106,7 +113,7 @@ class WaveBFRModel(BaseModel):
         self.in_channels = 3
 
         # This must be the multi-frame version whose forward accepts frame_mask.
-        self.netG = WaveBFRBreeze()
+        self.netG = MultiFrameWaveBFRBreeze()
         self.netG = networks.define_network(opt, self.netG)
 
         self.wavelet_transform = HaarWavelet(

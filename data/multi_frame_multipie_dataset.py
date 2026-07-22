@@ -63,7 +63,7 @@ class MultiFrameMultiPIEDataset(BaseDataset):
 
         LR:
             [max_frames, 3, H, W]
-            시간 순서대로 해상도가 증가하는 다중 프레임 입력.
+            대체로 해상도가 증가하되 jitter로 일부 역전될 수 있는 다중 프레임 입력.
             사용하지 않는 위치는 zero tensor.
 
         LR_mask:
@@ -90,8 +90,33 @@ class MultiFrameMultiPIEDataset(BaseDataset):
         self.min_frames = getattr(opt, "min_frames", 5)
         self.max_frames = getattr(opt, "max_frames", 10)
 
-        self.min_lr_size = getattr(opt, "min_lr_size", 16)
-        self.max_lr_size = getattr(opt, "max_lr_size", 112)
+        # 프레임 시퀀스의 시작/종료 해상도 범위.
+        self.first_lr_size_range = getattr(
+            opt, "first_lr_size_range", (8, 16)
+        )
+        self.last_lr_size_range = getattr(
+            opt, "last_lr_size_range", (48, 64)
+        )
+
+        # 낮은 확률로 가까운 거리의 고해상도 마지막 프레임도 포함한다.
+        self.high_res_last_prob = getattr(
+            opt, "high_res_last_prob", 0.10
+        )
+        self.high_res_last_range = getattr(
+            opt, "high_res_last_range", (64, 112)
+        )
+
+        self.lr_size_gamma = getattr(opt, "lr_size_gamma", 1.5)
+        self.lr_size_jitter_ratio = getattr(
+            opt, "lr_size_jitter_ratio", 0.45
+        )
+
+        # degradation 단계에서 허용할 전체 해상도 범위.
+        self.min_lr_size = min(self.first_lr_size_range)
+        self.max_lr_size = max(
+            max(self.last_lr_size_range),
+            max(self.high_res_last_range),
+        )
 
         if self.min_frames < 2:
             raise ValueError("min_frames must be at least 2.")
@@ -99,8 +124,29 @@ class MultiFrameMultiPIEDataset(BaseDataset):
         if self.min_frames > self.max_frames:
             raise ValueError("min_frames must be <= max_frames.")
 
-        if self.min_lr_size > self.max_lr_size:
-            raise ValueError("min_lr_size must be <= max_lr_size.")
+        for range_name, size_range in [
+            ("first_lr_size_range", self.first_lr_size_range),
+            ("last_lr_size_range", self.last_lr_size_range),
+            ("high_res_last_range", self.high_res_last_range),
+        ]:
+            if len(size_range) != 2 or size_range[0] > size_range[1]:
+                raise ValueError(
+                    f"{range_name} must be a (min_size, max_size) pair."
+                )
+
+        if self.first_lr_size_range[1] >= self.last_lr_size_range[0]:
+            raise ValueError(
+                "first_lr_size_range must end below last_lr_size_range."
+            )
+
+        if not 0.0 <= self.high_res_last_prob <= 1.0:
+            raise ValueError("high_res_last_prob must be in [0, 1].")
+
+        if self.lr_size_gamma <= 0:
+            raise ValueError("lr_size_gamma must be positive.")
+
+        if self.lr_size_jitter_ratio < 0:
+            raise ValueError("lr_size_jitter_ratio must be non-negative.")
 
         self.mean = [0.5, 0.5, 0.5]
         self.std = [0.5, 0.5, 0.5]
@@ -204,7 +250,7 @@ class MultiFrameMultiPIEDataset(BaseDataset):
             ]
         )
 
-    def _read_image(self, image_path):
+    def _read_image(self, image_path, interpolation):
         """
         이미지를 BGR float32 [0, 1] 형태로 읽는다.
         degradation 전에 충분한 해상도를 확보하기 위해 512x512로 resize한다.
@@ -216,8 +262,6 @@ class MultiFrameMultiPIEDataset(BaseDataset):
             raise FileNotFoundError(
                 f"Failed to read image: {image_path}"
             )
-
-        interpolation = self._random_interpolation()
 
         image = cv2.resize(
             image,
@@ -266,51 +310,61 @@ class MultiFrameMultiPIEDataset(BaseDataset):
 
     def _sample_lr_sizes(self, num_frames):
         """
-        16~112 사이를 num_frames개의 순차적인 구간으로 나누고,
-        각 구간에서 하나의 LR 크기를 선택한다.
+        첫 프레임과 마지막 프레임의 해상도를 각각 지정된 범위에서
+        무작위로 선택하고, 그 사이를 비선형 anchor와 Gaussian jitter로
+        채운다.
 
-        예: num_frames=5
-            frame 1: 약 16~35
-            frame 2: 약 35~54
-            frame 3: 약 54~74
-            frame 4: 약 74~93
-            frame 5: 약 93~112
+        기본적으로:
+            first: 8~16px
+            last: 48~64px
 
-        반환되는 크기는 항상 비감소 순서이다.
+        낮은 확률로 마지막 프레임을 64~112px 범위에서 선택한다.
+        중간 프레임은 선택된 시작/종료 해상도 범위 안에 유지되지만,
+        jitter로 인해 인접 프레임 사이의 일시적인 역전은 허용한다.
         """
 
-        # 정수 구간 경계.
-        edges = np.linspace(
-            self.min_lr_size,
-            self.max_lr_size,
-            num_frames + 1,
+        if num_frames < 2:
+            raise ValueError("num_frames must be at least 2.")
+
+        first_size = random.randint(*self.first_lr_size_range)
+
+        if random.random() < self.high_res_last_prob:
+            last_size = random.randint(*self.high_res_last_range)
+        else:
+            last_size = random.randint(*self.last_lr_size_range)
+
+        t = np.linspace(0.0, 1.0, num_frames, dtype=np.float32)
+        anchors = first_size + (
+            last_size - first_size
+        ) * np.power(t, self.lr_size_gamma)
+
+        base_step = (last_size - first_size) / max(num_frames - 1, 1)
+        jitter_std = base_step * self.lr_size_jitter_ratio
+
+        lr_sizes = anchors + np.random.normal(
+            loc=0.0,
+            scale=jitter_std,
+            size=num_frames,
         )
 
-        lr_sizes = []
+        # 시작과 종료 프레임은 선택된 값을 그대로 사용한다.
+        lr_sizes[0] = first_size
+        lr_sizes[-1] = last_size
 
-        for frame_idx in range(num_frames):
-            lower = int(round(edges[frame_idx]))
-            upper = int(round(edges[frame_idx + 1]))
+        # 중간 프레임은 해당 시퀀스의 시작/종료 범위를 벗어나지 않는다.
+        lr_sizes = np.clip(
+            np.rint(lr_sizes),
+            first_size,
+            last_size,
+        ).astype(np.int32)
 
-            lower = max(self.min_lr_size, lower)
-            upper = min(self.max_lr_size, upper)
-
-            if upper < lower:
-                upper = lower
-
-            lr_size = random.randint(lower, upper)
-            lr_sizes.append(lr_size)
-
-        # 구간 경계의 반올림으로 역전되는 경우를 방지.
-        lr_sizes = sorted(lr_sizes)
-
-        return lr_sizes
+        return lr_sizes.tolist()
 
     # ---------------------------------------------------------------------
     # Degradation
     # ---------------------------------------------------------------------
 
-    def _generate_lq(self, hr_image, lr_size):
+    def _generate_lq(self, hr_image, lr_size, interpolation):
         """
         HR 이미지 한 장을 지정된 내부 해상도 lr_size로 열화한 뒤,
         최종적으로 img_size x img_size로 다시 확대한다.
@@ -322,8 +376,6 @@ class MultiFrameMultiPIEDataset(BaseDataset):
               -> noise / JPEG
               -> 112x112
         """
-
-        interpolation = self._random_interpolation()
 
         # Avoid modifying the original NumPy array.
         lq_image = hr_image.copy()
@@ -449,6 +501,10 @@ class MultiFrameMultiPIEDataset(BaseDataset):
     def __getitem__(self, index):
         reference_sample = self.reference_samples[index]
 
+        # 실제 카메라 시퀀스를 모사하기 위해 한 시퀀스 내 모든 resize에
+        # 동일한 보간법을 사용한다. nearest-neighbor는 제외한다.
+        sequence_interpolation = self._random_interpolation()
+
         # 실제 사용할 프레임 개수: 5~10
         num_frames = random.randint(
             self.min_frames,
@@ -464,18 +520,19 @@ class MultiFrameMultiPIEDataset(BaseDataset):
         # 마지막 프레임은 반드시 reference/GT와 동일한 원본
         sequence_samples = auxiliary_samples + [reference_sample]
 
-        # 시간 순서가 뒤로 갈수록 해상도가 증가
+        # 랜덤 시작/종료점 + 비선형 증가 경향 + jitter를 갖는 해상도
         lr_sizes = self._sample_lr_sizes(num_frames)
 
         # 마지막 프레임의 원본이 학습 GT
         reference_hr_numpy = self._read_image(
-            reference_sample["path"]
+            reference_sample["path"],
+            interpolation=sequence_interpolation,
         )
 
         gt_resized = cv2.resize(
             reference_hr_numpy,
             (self.img_size, self.img_size),
-            interpolation=self._random_interpolation(),
+            interpolation=sequence_interpolation,
         )
 
         hr_tensor = self._to_normalized_tensor(gt_resized)
@@ -506,11 +563,15 @@ class MultiFrameMultiPIEDataset(BaseDataset):
         for frame_idx, (sample, lr_size) in enumerate(
             zip(sequence_samples, lr_sizes)
         ):
-            frame_hr = self._read_image(sample["path"])
+            frame_hr = self._read_image(
+                sample["path"],
+                interpolation=sequence_interpolation,
+            )
 
             frame_lq = self._generate_lq(
                 hr_image=frame_hr,
                 lr_size=lr_size,
+                interpolation=sequence_interpolation,
             )
 
             lr_tensor[frame_idx] = self._to_lq_tensor(frame_lq)
@@ -539,4 +600,3 @@ class MultiFrameMultiPIEDataset(BaseDataset):
 
     def __len__(self):
         return len(self.reference_samples)
-    
