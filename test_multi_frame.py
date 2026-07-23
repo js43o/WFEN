@@ -41,20 +41,36 @@ if __name__ == "__main__":
 
     network = model.netG
     network.eval()
+    
+    sr_save_dir = save_dir
+    # lr_save_dir = os.path.join(save_dir, "LR")
+
+    os.makedirs(sr_save_dir, exist_ok=True)
+    # os.makedirs(lr_save_dir, exist_ok=True)
 
     for i, data in tqdm(enumerate(dataset), total=len(dataset)):
-        inp, hr = data["LR"], data["HR"]
-        with torch.no_grad():
-            output = network(inp)
-            if isinstance(output, tuple):
-                output = output[0]  # except commit_loss
+        inp = data["LR"].to(opt.data_device)
+        hr = data["HR"].to(opt.data_device)
+        frame_mask = data["LR_mask"].to(opt.data_device).bool()
 
-        sr_img = utils.tensor_to_img(output, normal=True)
+        with torch.no_grad():
+            output = network(
+                inp,
+                frame_mask=frame_mask,
+            )
+
+            if isinstance(output, tuple):
+                output = output[0]
+
         # lr_img = utils.tensor_to_img(inp, normal=True)
+        sr_img = utils.tensor_to_img(output, normal=True)
         # hr_img = utils.tensor_to_img(hr, normal=True)
 
         img_path = data["HR_paths"]  # get image paths
-        filename = img_path[0].split("/")[-1]
+        if opt.dataset_name == "multi_frame_multipie":
+            filename = "_".join(img_path[0].split("/")[-3:])
+        else:
+            filename = img_path[0].split("/")[-1]
 
         # Image.fromarray(lr_img).save(os.path.join(save_dir, "lr", filename))
         Image.fromarray(sr_img).save(os.path.join(save_dir, filename))

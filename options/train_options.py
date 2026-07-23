@@ -162,6 +162,7 @@ class TrainOptions(BaseOptions):
             action="store_true",
             help="whether to pretrain the codebook",
         )
+        parser.add_argument('--pretrain_model_path', type=str, help='load pretrain model path if specified')
 
         self.isTrain = True
 

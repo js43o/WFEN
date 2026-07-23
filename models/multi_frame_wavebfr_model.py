@@ -67,7 +67,6 @@ class MultiFrameWaveBFRModel(BaseModel):
         )
 
         # Multi-frame fine-tuning options
-        parser.add_argument('--pretrain_model_path', type=str, required=True, help='load pretrain model path if specified')
         parser.add_argument(
             "--backbone_lr_scale",
             type=float,

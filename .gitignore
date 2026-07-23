@@ -3,6 +3,7 @@ check_points/*
 output/*
 results*
 temp*
+build/*
 
 __pycache__/*
 *.pyc

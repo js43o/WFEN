@@ -12,7 +12,7 @@ from sklearn.metrics import roc_curve
 # ──────────────────────────────────────────
 # 설정
 # ──────────────────────────────────────────
-PRED_PATH = "results/wacv_ver/lfw_custom-aligned_validation_112_easy"
+PRED_PATH = "results/breeze_122/lfw_custom-aligned_validation_112_easy"
 HQ_PATH = "../../datasets/lfw_custom-aligned_validation_112_easy/gt"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH = 64

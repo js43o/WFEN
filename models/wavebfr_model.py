@@ -15,6 +15,7 @@ from helpers.arcface.models import resnet_face18
 class WaveBFRModel(BaseModel):
 
     def modify_commandline_options(parser, is_train):
+    
         parser.add_argument(
             "--scale_factor", type=int, default=8, help="upscale factor for model"
         )
@@ -59,7 +60,7 @@ class WaveBFRModel(BaseModel):
 
         self.in_channels = 3
 
-        self.netG = WaveBFR()
+        self.netG = WaveBFRBreeze()
         self.netG = networks.define_network(opt, self.netG)
         self.wavelet_transform = HaarWavelet(
             in_channels=self.in_channels, grad=False
@@ -91,6 +92,7 @@ class WaveBFRModel(BaseModel):
                 self.criterionPCP = loss.PCPLoss(opt)
 
                 self.vgg19 = loss.PCPFeat("./pretrain_models/vgg19-dcbb9e9d.pth", "vgg")
+            
                 self.vgg19 = networks.define_network(
                     opt, self.vgg19, isTrain=False, init_network=False
                 )

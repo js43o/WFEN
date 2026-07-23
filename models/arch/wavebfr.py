@@ -528,7 +528,7 @@ class WaveBFRBreeze(nn.Module):
         inp_channels=3,
         out_channels=3,
         dim=16,  # 임베딩 채널 수
-        num_blocks=[1, 1, 1],  # encoder/decoder 각 계층의 Transformer 블록 수
+        num_blocks=[1, 2, 2],  # encoder/decoder 각 계층의 Transformer 블록 수
         heads=[1, 2, 4],  # 각 계층 내 Transformer의 multi-head 개수 정의
         ffn_expansion_factor=2.66,  # FFN 블록의 hidden 채널 확장 비율
         bias=False,  # attention 연산에 쓰이는 conv 레이어의 bias 사용 여부
@@ -778,7 +778,7 @@ class MultiFrameWaveBFRBreeze(nn.Module):
         inp_channels=3,
         out_channels=3,
         dim=16,  # 임베딩 채널 수
-        num_blocks=[1, 1, 1],  # encoder/decoder 각 계층의 Transformer 블록 수
+        num_blocks=[1, 2, 2],  # encoder/decoder 각 계층의 Transformer 블록 수
         heads=[1, 2, 4],  # 각 계층 내 Transformer의 multi-head 개수 정의
         ffn_expansion_factor=2.66,  # FFN 블록의 hidden 채널 확장 비율
         bias=False,  # attention 연산에 쓰이는 conv 레이어의 bias 사용 여부
@@ -1375,4 +1375,3 @@ class MultiFrameWaveBFRBreeze(nn.Module):
         raise ValueError(
             f"Unsupported input shape: {tuple(inp_img.shape)}"
         )
-    
