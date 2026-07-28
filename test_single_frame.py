@@ -97,6 +97,10 @@ if __name__ == "__main__":
                 filename = "_".join(
                     os.path.normpath(img_path).split(os.sep)[-3:]
                 )
+            elif opt.dataset_name == "multi_frame_kface":
+                filename = "_".join(
+                    os.path.normpath(img_path).split(os.sep)[-5:]
+                )
             else:
                 filename = os.path.basename(img_path)
 

@@ -69,6 +69,8 @@ if __name__ == "__main__":
         img_path = data["HR_paths"]  # get image paths
         if opt.dataset_name == "multi_frame_multipie":
             filename = "_".join(img_path[0].split("/")[-3:])
+        elif opt.dataset_name == "multi_frame_kface":
+            filename = "_".join(img_path[0].split("/")[-5:])
         else:
             filename = img_path[0].split("/")[-1]
 
