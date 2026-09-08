@@ -35,18 +35,16 @@ if __name__ == "__main__":
 
     print("creating result directory", save_dir)
 
-    # os.makedirs(os.path.join(save_dir, 'lr'), exist_ok=True)
+    os.makedirs(os.path.join(save_dir, 'lr'), exist_ok=True)
     os.makedirs(os.path.join(save_dir), exist_ok=True)
-    # os.makedirs(os.path.join(save_dir, 'hr'), exist_ok=True)
+    os.makedirs(os.path.join(save_dir, 'hr'), exist_ok=True)
 
     network = model.netG
     network.eval()
     
     sr_save_dir = save_dir
-    # lr_save_dir = os.path.join(save_dir, "LR")
 
     os.makedirs(sr_save_dir, exist_ok=True)
-    # os.makedirs(lr_save_dir, exist_ok=True)
 
     for i, data in tqdm(enumerate(dataset), total=len(dataset)):
         inp = data["LR"].to(opt.data_device)
@@ -62,9 +60,10 @@ if __name__ == "__main__":
             if isinstance(output, tuple):
                 output = output[0]
 
-        # lr_img = utils.tensor_to_img(inp, normal=True)
+        merged_inp = torch.cat([frame for frame in inp[0]], dim=-1)
+        lr_img = utils.tensor_to_img(merged_inp, normal=True)
         sr_img = utils.tensor_to_img(output, normal=True)
-        # hr_img = utils.tensor_to_img(hr, normal=True)
+        hr_img = utils.tensor_to_img(hr, normal=True)
 
         img_path = data["HR_paths"]  # get image paths
         if opt.dataset_name == "multi_frame_multipie":
@@ -77,3 +76,4 @@ if __name__ == "__main__":
         # Image.fromarray(lr_img).save(os.path.join(save_dir, "lr", filename))
         Image.fromarray(sr_img).save(os.path.join(save_dir, filename))
         # Image.fromarray(hr_img).save(os.path.join(save_dir, "hr", filename))
+    

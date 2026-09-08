@@ -9,7 +9,7 @@ import torch.optim as optim
 from models import loss, networks
 from .base_model import BaseModel
 from utils import utils
-from models.arch.multi_frame_wavebfr import MultiFrameWaveBFRBreezeV1
+from models.arch.multi_frame_wavebfr import MultiFrameWaveBFRBreezeV1, MultiFrameWaveBFRBreezeV2, MultiFrameWaveBFRBreezeV3
 from models.arch.wfen import HaarWavelet
 from helpers.arcface.models import resnet_face18
 
@@ -112,7 +112,7 @@ class MultiFrameWaveBFRModel(BaseModel):
         self.in_channels = 3
 
         # This must be the multi-frame version whose forward accepts frame_mask.
-        self.netG = MultiFrameWaveBFRBreezeV1()
+        self.netG = MultiFrameWaveBFRBreezeV3()
         self.netG = networks.define_network(opt, self.netG)
 
         self.wavelet_transform = HaarWavelet(

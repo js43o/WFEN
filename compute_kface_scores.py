@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 GT_DIR = "../../datasets/kface_crop_patch_v2/test"
 MODEL_ROOT = "results"
-MODEL_DIRS = ["breeze_122/kface_crop_patch_v2"]
+MODEL_DIRS = ["breeze_mf_v3/kface_crop_patch_v2"]
 
 SESSION = "S001"
 TARGET_CAMERAS = [
