@@ -1,7 +1,15 @@
 import torch
 import torch.nn as nn
 
-from models.arch.restormer import OverlapPatchEmbed, Downsample, Upsample, TransformerBlock, FeatureAccumulator, ReferenceResidualFusion, ResidualShallowEncoder
+from models.arch.restormer import (
+    OverlapPatchEmbed,
+    Downsample,
+    Upsample,
+    TransformerBlock,
+    FeatureAccumulator,
+    ReferenceResidualFusion,
+    ResidualShallowEncoder,
+)
 from models.arch.wfen import HaarWavelet
 
 
@@ -117,8 +125,6 @@ class MultiFrameWaveBFRBreezeV1(nn.Module):
 
         for i in range(t):
             is_aux = frame_mask[:, i] & (i < last_indices)
-            if not is_aux.any():
-                continue
 
             current = features[:, i]
             first_mask = (is_aux & ~has_memory)[:, None, None, None]
@@ -127,7 +133,7 @@ class MultiFrameWaveBFRBreezeV1(nn.Module):
             memory = torch.where(first_mask, current, memory)
             updated_memory = self.feature_accumulator(memory, current)
             memory = torch.where(recurrent_mask, updated_memory, memory)
-            has_memory |= is_aux
+            has_memory = has_memory | is_aux
 
         return self.reference_fusion(reference_feature, memory), reference_image
 
@@ -190,8 +196,7 @@ class MultiFrameWaveBFRBreezeV1(nn.Module):
             return self.restore_from_feature(feature, reference_image)
 
         raise ValueError(
-            f"inp_img must be [B,C,H,W] or [B,T,C,H,W], "
-            f"got {tuple(inp_img.shape)}"
+            f"inp_img must be [B,C,H,W] or [B,T,C,H,W], " f"got {tuple(inp_img.shape)}"
         )
 
 
@@ -320,9 +325,7 @@ class MultiFrameWaveBFRBreezeV3(MultiFrameWaveBFRBreezeV2):
     def accumulate_multi_frame_features(self, frames, frame_mask):
         """Auxiliary feature를 reference-conditioned 방식으로 누적한다."""
         if frames.ndim != 5:
-            raise ValueError(
-                f"frames must be [B,T,C,H,W], got {tuple(frames.shape)}"
-            )
+            raise ValueError(f"frames must be [B,T,C,H,W], got {tuple(frames.shape)}")
         if frame_mask.ndim != 2 or frame_mask.shape != frames.shape[:2]:
             raise ValueError(
                 f"frame_mask must be {tuple(frames.shape[:2])}, "
@@ -334,25 +337,18 @@ class MultiFrameWaveBFRBreezeV3(MultiFrameWaveBFRBreezeV2):
         valid_counts = frame_mask.sum(dim=1)
 
         if (valid_counts == 0).any():
-            raise ValueError(
-                "Every sample must contain at least one valid frame."
-            )
+            raise ValueError("Every sample must contain at least one valid frame.")
 
         expected_mask = (
-            torch.arange(t, device=frames.device)[None]
-            < valid_counts[:, None]
+            torch.arange(t, device=frames.device)[None] < valid_counts[:, None]
         )
         if not torch.equal(frame_mask, expected_mask):
-            raise ValueError(
-                "Valid frames must be contiguous from the beginning."
-            )
+            raise ValueError("Valid frames must be contiguous from the beginning.")
 
         last_indices = valid_counts - 1
         batch_indices = torch.arange(b, device=frames.device)
 
-        features = self.encode_shallow(
-            frames.reshape(b * t, c, h, w)
-        )
+        features = self.encode_shallow(frames.reshape(b * t, c, h, w))
         features = features.reshape(
             b,
             t,
@@ -377,8 +373,6 @@ class MultiFrameWaveBFRBreezeV3(MultiFrameWaveBFRBreezeV2):
 
         for i in range(t):
             is_aux = frame_mask[:, i] & (i < last_indices)
-            if not is_aux.any():
-                continue
 
             current = features[:, i]
             first_aux = is_aux & ~has_memory
@@ -401,7 +395,7 @@ class MultiFrameWaveBFRBreezeV3(MultiFrameWaveBFRBreezeV2):
                 updated_memory,
                 memory,
             )
-            has_memory |= is_aux
+            has_memory = has_memory | is_aux
 
         fused_feature = self.reference_fusion(
             reference_feature,

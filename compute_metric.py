@@ -16,12 +16,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/15-2_wo-gated-ffn-exp-3.5/celeba-hq_custom-aligned_validation",
+    default="results/breeze_mf_v3/kface_crop_patch_v2",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="/vcl2/Jiseung/datasets/celeba-hq_custom-aligned_validation/gt",
+    default="results/_multiframe_kface/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"

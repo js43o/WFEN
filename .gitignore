@@ -21,3 +21,5 @@ _*
 !__init__.py
 .vscode*
 wandb
+
+suprema/*

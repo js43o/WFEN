@@ -10,15 +10,24 @@ from facenet_pytorch import InceptionResnetV1
 from PIL import Image
 from tqdm import tqdm
 
-
 GT_DIR = "../../datasets/kface_crop_patch_v2/test"
 MODEL_ROOT = "results"
 MODEL_DIRS = ["breeze_mf_v3/kface_crop_patch_v2"]
 
 SESSION = "S001"
 TARGET_CAMERAS = [
-    "C4", "C5", "C6", "C7", "C8", "C9", "C10",
-    "C14", "C15", "C16", "C17", "C18",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "C9",
+    "C10",
+    "C14",
+    "C15",
+    "C16",
+    "C17",
+    "C18",
 ]
 
 # PID당 gallery 한 장. 필요하면 조건만 바꾸면 됨.
@@ -32,11 +41,13 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 
 
 id_model = InceptionResnetV1(pretrained="vggface2").eval().to(DEVICE)
-transform = T.Compose([
-    T.Resize((160, 160)),
-    T.ToTensor(),
-    T.Normalize([0.5] * 3, [0.5] * 3),
-])
+transform = T.Compose(
+    [
+        T.Resize((160, 160)),
+        T.ToTensor(),
+        T.Normalize([0.5] * 3, [0.5] * 3),
+    ]
+)
 
 
 def parse_kface_path(path):
@@ -90,7 +101,7 @@ def extract_features(paths):
     features, pids = [], []
 
     for start in tqdm(range(0, len(paths), BATCH_SIZE), leave=False):
-        batch_paths = paths[start:start + BATCH_SIZE]
+        batch_paths = paths[start : start + BATCH_SIZE]
         images = torch.stack([load_image(p) for p in batch_paths]).to(DEVICE)
         features.append(F.normalize(id_model(images), dim=1).cpu())
         pids.extend(parse_kface_path(p)["pid"] for p in batch_paths)
@@ -132,7 +143,7 @@ def verification_metrics(similarities, probe_pids, gallery_pids):
 def identification_metrics(similarities, probe_pids, gallery_pids):
     order = np.argsort(-similarities, axis=1)
     top1 = gallery_pids[order[:, :1]]
-    top5 = gallery_pids[order[:, :min(5, len(gallery_pids))]]
+    top5 = gallery_pids[order[:, : min(5, len(gallery_pids))]]
 
     rank1 = np.mean([pid in row for pid, row in zip(probe_pids, top1)])
     rank5 = np.mean([pid in row for pid, row in zip(probe_pids, top5)])
@@ -191,11 +202,15 @@ for model_name in MODEL_DIRS:
     rank1, rank5 = identification_metrics(similarities, probe_pids, gallery_pids)
 
     print("Verification:")
-    print(f"Accuracy          : {verification['acc'] * 100:.2f}  "
-          f"(thr={verification['acc_thr']:.4f})")
+    print(
+        f"Accuracy          : {verification['acc'] * 100:.2f}  "
+        f"(thr={verification['acc_thr']:.4f})"
+    )
     for name, label in (("1e2", "1e-2"), ("1e3", "1e-3"), ("1e4", "1e-4")):
-        print(f"TAR @ FAR={label:<5} : {verification[f'tar_{name}'] * 100:.2f}  "
-              f"(thr={verification[f'thr_{name}']:.4f})")
+        print(
+            f"TAR @ FAR={label:<5} : {verification[f'tar_{name}'] * 100:.2f}  "
+            f"(thr={verification[f'thr_{name}']:.4f})"
+        )
 
     print("Identification:")
     print(f"Rank-1            : {rank1 * 100:.2f}")

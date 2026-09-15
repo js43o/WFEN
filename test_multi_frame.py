@@ -55,6 +55,45 @@ class FlopWrapper(torch.nn.Module):
 # ============================================================
 
 
+def export_onnx(
+    network,
+    save_path,
+    device,
+    image_size=112,
+):
+    network = network.eval().float().to(device)
+
+    """ 
+    # ONNX export
+    
+    dummy_inp = torch.randn(
+        1,
+        10,
+        3,
+        image_size,
+        image_size,
+        device=device,
+        dtype=torch.float32,
+    )
+
+    dummy_mask = torch.tensor(
+        [[True, True, True, True, True, False, False, False, False, False]],
+        device=device,
+        dtype=torch.bool,
+    )
+    
+    torch.onnx.export(
+        network.module,
+        (dummy_inp, dummy_mask),
+        save_path,
+        input_names=["input", "frame_mask"],
+        output_names=["output"],
+        opset_version=17,
+    )"""
+
+    print(f"Saved ONNX model: {save_path}")
+
+
 def count_parameters(model):
     total_params = sum(p.numel() for p in model.parameters())
 
@@ -564,6 +603,13 @@ if __name__ == "__main__":
 
     network = model.netG
     network.eval()
+
+    export_onnx(
+        network=network,
+        save_path="wavebfr_multiframe.onnx",
+        device=device,
+        image_size=opt.load_size,
+    )
 
     # --------------------------------------------------------
     # FP16 = default

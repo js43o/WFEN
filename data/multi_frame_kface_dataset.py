@@ -12,7 +12,6 @@ from basicsr.data import degradations
 from basicsr.utils import img2tensor
 from data.base_dataset import BaseDataset
 
-
 SESSION = "S001"
 LIGHT_CLASSES = ["L1", "L2", "L3", "L4", "L8", "L9", "L10", "L12", "L13"]
 EXPRESSION_CLASSES = ["E01", "E02", "E03"]
@@ -36,9 +35,8 @@ class MultiFrameKFaceDataset(BaseDataset):
         self.min_frames = getattr(opt, "min_frames", 5)
         self.max_frames = getattr(opt, "max_frames", 10)
 
-        # 약 8m(32px)에서 5m(64px)까지 접근하는 시퀀스.
-        self.first_size_range = getattr(opt, "first_lr_size_range", (32, 40))
-        self.last_size_range = getattr(opt, "last_lr_size_range", (56, 64))
+        self.first_size_range = getattr(opt, "first_lr_size_range", (16, 32))
+        self.last_size_range = getattr(opt, "last_lr_size_range", (32, 64))
         self.size_gamma = getattr(opt, "lr_size_gamma", 1.5)
         self.size_jitter = getattr(opt, "lr_size_jitter_ratio", 0.25)
 
@@ -78,8 +76,10 @@ class MultiFrameKFaceDataset(BaseDataset):
             if len(value) != 2 or value[0] > value[1]:
                 raise ValueError(f"{name} must be (min, max).")
 
-        if self.first_size_range[1] >= self.last_size_range[0]:
-            raise ValueError("The first-frame range must end below the last-frame range.")
+        if self.first_size_range[1] > self.last_size_range[0]:
+            raise ValueError(
+                "The first-frame range must end below the last-frame range."
+            )
         if self.size_gamma <= 0 or self.size_jitter < 0:
             raise ValueError("Invalid size_gamma or size_jitter.")
 
@@ -251,4 +251,3 @@ class MultiFrameKFaceDataset(BaseDataset):
 
     def __len__(self):
         return len(self.reference_samples)
-    
