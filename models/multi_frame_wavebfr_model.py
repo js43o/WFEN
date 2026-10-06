@@ -9,7 +9,7 @@ import torch.optim as optim
 from models import loss, networks
 from .base_model import BaseModel
 from utils import utils
-from models.arch.multi_frame_wavebfr import MultiFrameWaveBFRBreezeV1, MultiFrameWaveBFRBreezeV2, MultiFrameWaveBFRBreezeV3
+from models.arch.multi_frame_wavebfr import MultiFrameWaveBFR
 from models.arch.wfen import HaarWavelet
 from helpers.arcface.models import resnet_face18
 
@@ -97,7 +97,7 @@ class MultiFrameWaveBFRModel(BaseModel):
             action="store_true",
             help="retain full LR sequence for custom visualization/debugging",
         )
-        
+
         parser.add_argument("--min_frames", type=int, default=5)
         parser.add_argument("--max_frames", type=int, default=10)
         parser.add_argument("--min_lr_size", type=int, default=16)
@@ -112,7 +112,7 @@ class MultiFrameWaveBFRModel(BaseModel):
         self.in_channels = 3
 
         # This must be the multi-frame version whose forward accepts frame_mask.
-        self.netG = MultiFrameWaveBFRBreezeV3()
+        self.netG = MultiFrameWaveBFR()
         self.netG = networks.define_network(opt, self.netG)
 
         self.wavelet_transform = HaarWavelet(
@@ -175,9 +175,7 @@ class MultiFrameWaveBFRModel(BaseModel):
             print("➕ VGG loss")
             self.loss_names.append("VGG")
             self.criterionPCP = loss.PCPLoss(opt)
-            self.vgg19 = loss.PCPFeat(
-                "./pretrain_models/vgg19-dcbb9e9d.pth", "vgg"
-            )
+            self.vgg19 = loss.PCPFeat("./pretrain_models/vgg19-dcbb9e9d.pth", "vgg")
             self.vgg19 = networks.define_network(
                 opt, self.vgg19, isTrain=False, init_network=False
             )
@@ -215,9 +213,9 @@ class MultiFrameWaveBFRModel(BaseModel):
             print("➕ identity loss")
             self.loss_names.append("ID")
             self.criterionID = loss.IDLoss()
-            self.arcface_model = resnet_face18(
-                use_se=False, use_feature_maps=True
-            ).to(opt.data_device)
+            self.arcface_model = resnet_face18(use_se=False, use_feature_maps=True).to(
+                opt.data_device
+            )
             self.arcface_model.load_state_dict(
                 torch.load(
                     "helpers/arcface/weights/resnet18_110_wo_dist.pth",
@@ -330,15 +328,11 @@ class MultiFrameWaveBFRModel(BaseModel):
     def set_input(self, input, cur_iters=None):
         self.cur_iters = cur_iters
 
-        self.img_LR_seq = input["LR"].to(
-            self.opt.data_device, non_blocking=True
+        self.img_LR_seq = input["LR"].to(self.opt.data_device, non_blocking=True)
+        self.img_LR_mask = (
+            input["LR_mask"].to(self.opt.data_device, non_blocking=True).bool()
         )
-        self.img_LR_mask = input["LR_mask"].to(
-            self.opt.data_device, non_blocking=True
-        ).bool()
-        self.img_HR = input["HR"].to(
-            self.opt.data_device, non_blocking=True
-        )
+        self.img_HR = input["HR"].to(self.opt.data_device, non_blocking=True)
 
         if self.img_LR_seq.ndim != 5:
             raise ValueError(
@@ -347,8 +341,7 @@ class MultiFrameWaveBFRModel(BaseModel):
             )
         if self.img_LR_mask.ndim != 2:
             raise ValueError(
-                "LR_mask must have shape [B,T], "
-                f"got {tuple(self.img_LR_mask.shape)}"
+                "LR_mask must have shape [B,T], " f"got {tuple(self.img_LR_mask.shape)}"
             )
         if self.img_LR_seq.shape[:2] != self.img_LR_mask.shape:
             raise ValueError(
@@ -398,24 +391,16 @@ class MultiFrameWaveBFRModel(BaseModel):
         if self.opt.lambda_adv > 0:
             # Real branch does not need gradients for generator training.
             with torch.no_grad():
-                self.real_D_results = self.netD(
-                    self.img_hf_HR, return_feat=True
-                )
-            self.fake_D_results = self.netD(
-                self.img_hf_SR.detach(), return_feat=False
-            )
-            self.fake_G_results = self.netD(
-                self.img_hf_SR, return_feat=True
-            )
+                self.real_D_results = self.netD(self.img_hf_HR, return_feat=True)
+            self.fake_D_results = self.netD(self.img_hf_SR.detach(), return_feat=False)
+            self.fake_G_results = self.netD(self.img_hf_SR, return_feat=True)
 
     # ------------------------------------------------------------------
     # Losses and optimization
     # ------------------------------------------------------------------
 
     def backward_G(self):
-        self.loss_Pix = (
-            self.criterionL1(self.img_SR, self.img_HR) * self.opt.lambda_pix
-        )
+        self.loss_Pix = self.criterionL1(self.img_SR, self.img_HR) * self.opt.lambda_pix
         self.loss_LF = (
             self.criterionL1(self.img_lf_SR, self.img_lf_HR) * self.opt.lambda_lf
         )
@@ -427,8 +412,7 @@ class MultiFrameWaveBFRModel(BaseModel):
 
         if self.opt.lambda_ssim > 0:
             self.loss_SSIM = (
-                self.criterionSSIM(self.img_SR, self.img_HR)
-                * self.opt.lambda_ssim
+                self.criterionSSIM(self.img_SR, self.img_HR) * self.opt.lambda_ssim
             )
             total_loss = total_loss + self.loss_SSIM
 
@@ -455,33 +439,24 @@ class MultiFrameWaveBFRModel(BaseModel):
                 )
 
             self.loss_FM = (
-                feature_matching
-                * (self.opt.lambda_adv * 10.0)
-                / self.opt.num_D
+                feature_matching * (self.opt.lambda_adv * 10.0) / self.opt.num_D
             )
-            self.loss_G = (
-                generator_gan * self.opt.lambda_adv / self.opt.num_D
-            )
+            self.loss_G = generator_gan * self.opt.lambda_adv / self.opt.num_D
             total_loss = total_loss + self.loss_FM + self.loss_G
 
         if self.opt.lambda_id > 0:
-            pred_embed = self.arcface_model(
-                utils.process_arcface_input(self.img_lf_SR)
-            )
+            pred_embed = self.arcface_model(utils.process_arcface_input(self.img_lf_SR))
             with torch.no_grad():
                 hr_embed = self.arcface_model(
                     utils.process_arcface_input(self.img_lf_HR)
                 )
 
-            self.loss_ID = (
-                self.criterionID(pred_embed, hr_embed) * self.opt.lambda_id
-            )
+            self.loss_ID = self.criterionID(pred_embed, hr_embed) * self.opt.lambda_id
             total_loss = total_loss + self.loss_ID
 
         if self.opt.lambda_dists > 0:
             self.loss_DISTS = (
-                self.criterionDISTS(self.img_SR, self.img_HR)
-                * self.opt.lambda_dists
+                self.criterionDISTS(self.img_SR, self.img_HR) * self.opt.lambda_dists
             )
             total_loss = total_loss + self.loss_DISTS
 

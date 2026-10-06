@@ -1,6 +1,12 @@
 import torch
 import torch.nn as nn
-from models.arch.restormer import OverlapPatchEmbed, Downsample, Upsample, TransformerBlock, LightweightHFBlock
+from models.arch.restormer import (
+    OverlapPatchEmbed,
+    Downsample,
+    Upsample,
+    TransformerBlock,
+    LightweightHFBlock,
+)
 from models.arch.wfen import HaarWavelet
 
 
@@ -760,7 +766,7 @@ class WaveBFRBreeze(nn.Module):
         hf_inp_dec_lv1 = torch.cat([hf_inp_dec_lv1, hf_out_enc_lv1], 1)
         hf_inp_dec_lv1 = self.hf_reduce_chan_lv1(hf_inp_dec_lv1)
         hf_out_dec_lv1 = self.hf_decoder_lv1(hf_inp_dec_lv1)
-        
+
         hf_out_dec_lv1 = self.hf_project_out(hf_out_dec_lv1)
 
         # merge LF and HF subbands 🖇️
@@ -770,4 +776,3 @@ class WaveBFRBreeze(nn.Module):
         restored = self.output(restored) + inp_img
 
         return restored
-

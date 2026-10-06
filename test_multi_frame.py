@@ -63,9 +63,7 @@ def export_onnx(
 ):
     network = network.eval().float().to(device)
 
-    """ 
     # ONNX export
-    
     dummy_inp = torch.randn(
         1,
         10,
@@ -81,15 +79,15 @@ def export_onnx(
         device=device,
         dtype=torch.bool,
     )
-    
+
     torch.onnx.export(
         network.module,
         (dummy_inp, dummy_mask),
         save_path,
         input_names=["input", "frame_mask"],
         output_names=["output"],
-        opset_version=17,
-    )"""
+        opset_version=12,
+    )
 
     print(f"Saved ONNX model: {save_path}")
 
@@ -606,7 +604,7 @@ if __name__ == "__main__":
 
     export_onnx(
         network=network,
-        save_path="wavebfr_multiframe.onnx",
+        save_path="wavebfr_multiframe_opset12.onnx",
         device=device,
         image_size=opt.load_size,
     )
