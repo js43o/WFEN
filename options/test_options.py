@@ -105,6 +105,13 @@ class TestOptions(BaseOptions):
             ),
         )
 
+        parser.add_argument(
+            "--calibration_jpg_dir",
+            type=str,
+            default="",
+            help=("Saving directory of calibration images"),
+        )
+
         self.isTrain = False
 
         return parser
