@@ -54,6 +54,33 @@ class FlopWrapper(torch.nn.Module):
 # Utility
 # ============================================================
 
+from torch import nn
+
+
+class CV72LatencyWrapper(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        # x: [1, 30, 112, 112]
+        frames = [x[:, i * 3 : (i + 1) * 3, :, :] for i in range(10)]
+
+        feats = [self.model.patch_embed(frame) for frame in frames]
+
+        # 10 frames are all valid:
+        # frame 9 is reference, frames 0~8 are accumulated.
+        reference = feats[9]
+        reference_image = frames[9]
+
+        memory = feats[0]
+        for i in range(1, 9):
+            memory = self.model._accumulate(memory, feats[i], reference)
+
+        feature = self.model._fuse_reference(reference, memory)
+
+        return self.model.restore(feature, reference_image)
+
 
 def export_onnx(
     network,
@@ -64,6 +91,7 @@ def export_onnx(
     network = network.eval().float().to(device)
 
     # ONNX export
+    """
     dummy_inp = torch.randn(
         1,
         10,
@@ -85,6 +113,20 @@ def export_onnx(
         (dummy_inp, dummy_mask),
         save_path,
         input_names=["input", "frame_mask"],
+        output_names=["output"],
+        opset_version=12,
+    )
+    """
+
+    wrapper = CV72LatencyWrapper(network.module).eval()
+
+    dummy_inp = torch.randn(1, 30, 112, 112, device=next(wrapper.parameters()).device)
+
+    torch.onnx.export(
+        wrapper,
+        dummy_inp,
+        save_path,
+        input_names=["input"],
         output_names=["output"],
         opset_version=12,
     )
@@ -604,7 +646,7 @@ if __name__ == "__main__":
 
     export_onnx(
         network=network,
-        save_path="wavebfr_multiframe_opset12.onnx",
+        save_path="%s.onnx" % opt.name,
         device=device,
         image_size=opt.load_size,
     )
@@ -722,20 +764,11 @@ if __name__ == "__main__":
                 dim=-1,
             )
 
-            lr_img = utils.tensor_to_img(
-                merged_inp,
-                normal=True,
-            )
+            lr_img = utils.tensor_to_img(merged_inp, normal=True)
 
-            sr_img = utils.tensor_to_img(
-                output,
-                normal=True,
-            )
+            sr_img = utils.tensor_to_img(output, normal=True)
 
-            hr_img = utils.tensor_to_img(
-                hr,
-                normal=True,
-            )
+            hr_img = utils.tensor_to_img(hr, normal=True)
 
             img_path = data["HR_paths"]
 

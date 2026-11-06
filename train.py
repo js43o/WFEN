@@ -10,6 +10,9 @@ from options.train_options import TrainOptions
 from data import create_dataset
 from models import create_model
 
+
+from torchvision.utils import save_image
+
 if __name__ == "__main__":
     opt = TrainOptions().parse()
 
@@ -45,6 +48,10 @@ if __name__ == "__main__":
             opt.resume_epoch, opt.resume_iter
         )
     )
+
+    info = {"resume_epoch": 0, "resume_iter": 0}
+    model.save_networks("latest", info)  # 초기 네트워크 저장
+
     with wandb.init(project=project, id=run_name, config=opt, resume="allow") as run:
         for epoch in range(opt.resume_epoch, opt.total_epochs + 1):
             for i, data in enumerate(dataset, start=start_iter):

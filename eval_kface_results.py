@@ -44,8 +44,10 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Unified K-FACE image-quality and face-recognition evaluation."
     )
-    parser.add_argument("--pred_dir", type=str, required=True)
-    parser.add_argument("--hq_dir", type=str, required=True)
+    parser.add_argument(
+        "--pred_dir", type=str, default="results/wacv_ver_mf/kface_crop_patch_v2"
+    )
+    parser.add_argument("--hq_dir", type=str, default="results/multiframe_kface/hr")
     parser.add_argument(
         "--arcface_weights",
         type=str,

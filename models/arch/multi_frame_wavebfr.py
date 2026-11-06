@@ -16,7 +16,7 @@ class MultiFrameWaveBFR(nn.Module):
         backbone="breeze",
         inp_channels=3,
         out_channels=3,
-        dim=16,
+        dim=24,
         num_blocks=None,
         num_refinement_blocks=2,
         heads=None,
@@ -31,13 +31,13 @@ class MultiFrameWaveBFR(nn.Module):
 
         if self.backbone == "wavebfr":
             print("🦴 WaveBFR backbone is loaded")
-            num_blocks = tuple(num_blocks or (2, 2, 2, 4))
-            heads = tuple(heads or (1, 2, 4, 8))
+            num_blocks = tuple(num_blocks or (2, 2, 2, 3))
+            heads = tuple(heads or (1, 2, 2, 4))
             if len(num_blocks) != 4 or len(heads) != 4:
                 raise ValueError("WaveBFR requires 4 num_blocks/head values.")
         elif self.backbone == "breeze":
             print("🦴 Breeze backbone is loaded")
-            num_blocks = tuple(num_blocks or (1, 1, 1))
+            num_blocks = tuple(num_blocks or (2, 2, 4))
             heads = tuple(heads or (1, 2, 4))
             if len(num_blocks) != 3 or len(heads) != 3:
                 raise ValueError("WaveBFRBreeze requires 3 num_blocks/head values.")

@@ -16,12 +16,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/breeze_mf_v3/kface_crop_patch_v2",
+    default="results/wacv_3m_mf/kface_crop_patch_v2",
 )
 parser.add_argument(
     "--gt_path",
     type=str,
-    default="results/_multiframe_kface/hr",
+    default="results/multiframe_kface/hr",
 )
 parser.add_argument(
     "--match", action="store_true", help="Match the number of pred and GT samples"
