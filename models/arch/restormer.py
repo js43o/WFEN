@@ -198,6 +198,39 @@ class OverlapPatchEmbed(nn.Module):
 
 
 ##########################################################################
+## CV72 호환을 위한 nn.pixelUnshuffle 연산 대체
+
+
+class FixedPixelUnshuffle(nn.Module):
+    def __init__(self, channels, factor=2):
+        super().__init__()
+
+        self.conv = nn.Conv2d(
+            in_channels=channels,
+            out_channels=channels * factor * factor,
+            kernel_size=factor,
+            stride=factor,
+            padding=0,
+            groups=channels,
+            bias=False,
+        )
+
+        with torch.no_grad():
+            self.conv.weight.zero_()
+
+            for c in range(channels):
+                for i in range(factor):
+                    for j in range(factor):
+                        out_c = c * factor * factor + i * factor + j
+                        self.conv.weight[out_c, 0, i, j] = 1.0
+
+        self.conv.weight.requires_grad_(False)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+##########################################################################
 ## Resizing modules
 ## 해상도는 2배 감소, 채널 수는 2배 증가
 class Downsample(nn.Module):
@@ -208,7 +241,8 @@ class Downsample(nn.Module):
             nn.Conv2d(
                 n_feat, n_feat // 2, kernel_size=3, stride=1, padding=1, bias=False
             ),
-            nn.PixelUnshuffle(2),
+            # nn.PixelUnshuffle(2),
+            FixedPixelUnshuffle(n_feat // 2, 2),
         )
 
     def forward(self, x):
@@ -463,8 +497,8 @@ class LightweightHFBlock(nn.Module):
 
     def forward(self, x):
         return x + self.body(x)
-    
-    
+
+
 class FeatureAccumulator(nn.Module):
     """
     이전 auxiliary feature들을 순차적으로 누적한다.
@@ -531,14 +565,11 @@ class FeatureAccumulator(nn.Module):
         gate = self.update_gate(combined)
         candidate = self.candidate(combined)
 
-        updated_memory = (
-            (1.0 - gate) * memory
-            + gate * candidate
-        )
+        updated_memory = (1.0 - gate) * memory + gate * candidate
 
         return updated_memory
-    
-    
+
+
 class ReferenceResidualFusion(nn.Module):
     """
     마지막 reference feature를 보존하면서
@@ -567,7 +598,6 @@ class ReferenceResidualFusion(nn.Module):
                 bias=bias,
             ),
             nn.GELU(),
-
             nn.Conv2d(
                 dim * 2,
                 dim * 2,
@@ -578,7 +608,6 @@ class ReferenceResidualFusion(nn.Module):
                 bias=bias,
             ),
             nn.GELU(),
-
             nn.Conv2d(
                 dim * 2,
                 dim,
@@ -625,7 +654,8 @@ class ReferenceResidualFusion(nn.Module):
         residual = residual * channel_gate
 
         return reference + residual
-    
+
+
 class ResidualShallowEncoder(nn.Module):
     def __init__(
         self,

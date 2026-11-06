@@ -2,15 +2,28 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-from models.arch.restormer import OverlapPatchEmbed, Downsample, Upsample, TransformerBlock
+from models.arch.restormer import (
+    OverlapPatchEmbed,
+    Downsample,
+    Upsample,
+    TransformerBlock,
+)
 from models.arch.wfen import HaarWavelet
 
 
 class MultiFrameWaveBFR(nn.Module):
     def __init__(
-        self, backbone="breeze", inp_channels=3, out_channels=3, dim=24,
-        num_blocks=None, num_refinement_blocks=2, heads=None,
-        ffn_expansion_factor=2.66, bias=False, LayerNorm_type="WithBias",
+        self,
+        backbone="breeze",
+        inp_channels=3,
+        out_channels=3,
+        dim=24,
+        num_blocks=None,
+        num_refinement_blocks=2,
+        heads=None,
+        ffn_expansion_factor=2.66,
+        bias=False,
+        LayerNorm_type="WithBias",
     ):
         super().__init__()
         self.backbone, self.dim = backbone.lower(), dim
@@ -23,39 +36,55 @@ class MultiFrameWaveBFR(nn.Module):
         default_blocks, default_heads = defaults[self.backbone]
         nb, nh = tuple(num_blocks or default_blocks), tuple(heads or default_heads)
         if len(nb) != len(default_blocks) or len(nh) != len(default_heads):
-            raise ValueError(f"{self.backbone} expects {len(default_blocks)} block/head values")
+            raise ValueError(
+                f"{self.backbone} expects {len(default_blocks)} block/head values"
+            )
 
         def blocks(channels, count, head):
-            return nn.Sequential(*[
-                TransformerBlock(
-                    dim=channels, num_heads=head,
-                    ffn_expansion_factor=ffn_expansion_factor,
-                    bias=bias, LayerNorm_type=LayerNorm_type,
-                ) for _ in range(count)
-            ])
+            return nn.Sequential(
+                *[
+                    TransformerBlock(
+                        dim=channels,
+                        num_heads=head,
+                        ffn_expansion_factor=ffn_expansion_factor,
+                        bias=bias,
+                        LayerNorm_type=LayerNorm_type,
+                    )
+                    for _ in range(count)
+                ]
+            )
 
         self.patch_embed = OverlapPatchEmbed(inp_channels, dim)
         self.wavelet_transform = HaarWavelet(dim, grad=False)
-        self.feature_accumulator = nn.ModuleDict({
-            "delta": nn.Sequential(
-                nn.Conv2d(dim * 3, dim, 3, padding=1, bias=bias),
-                nn.SiLU(), nn.Conv2d(dim, dim, 3, padding=1, bias=bias),
-            ),
-            "gate": nn.Conv2d(dim * 3, dim, 1, bias=True),
-        })
+        self.feature_accumulator = nn.ModuleDict(
+            {
+                "delta": nn.Sequential(
+                    nn.Conv2d(dim * 3, dim, 3, padding=1, bias=bias),
+                    nn.SiLU(),
+                    nn.Conv2d(dim, dim, 3, padding=1, bias=bias),
+                ),
+                "gate": nn.Conv2d(dim * 3, dim, 1, bias=True),
+            }
+        )
         nn.init.constant_(self.feature_accumulator["gate"].bias, -2.0)
-        self.reference_fusion = nn.ModuleDict({
-            "body": nn.Sequential(
-                nn.Conv2d(dim * 2, dim, 3, padding=1, bias=bias),
-                nn.SiLU(), nn.Conv2d(dim, dim, 3, padding=1, bias=bias),
-            )
-        })
+        self.reference_fusion = nn.ModuleDict(
+            {
+                "body": nn.Sequential(
+                    nn.Conv2d(dim * 2, dim, 3, padding=1, bias=bias),
+                    nn.SiLU(),
+                    nn.Conv2d(dim, dim, 3, padding=1, bias=bias),
+                )
+            }
+        )
         nn.init.zeros_(self.reference_fusion["body"][-1].weight)
         if self.reference_fusion["body"][-1].bias is not None:
             nn.init.zeros_(self.reference_fusion["body"][-1].bias)
 
-        for prefix, multiplier in (("lf", 1), ("hf", 3 if self.backbone == "wavebfr" else 1)):
-            c1, c2, c3 = (dim * multiplier * 2 ** k for k in range(3))
+        for prefix, multiplier in (
+            ("lf", 1),
+            ("hf", 3 if self.backbone == "wavebfr" else 1),
+        ):
+            c1, c2, c3 = (dim * multiplier * 2**k for k in range(3))
             modules = {
                 "encoder_lv1": blocks(c1, nb[0], nh[0]),
                 "down1_2": Downsample(c1),
@@ -70,12 +99,14 @@ class MultiFrameWaveBFR(nn.Module):
                 "decoder_lv1": blocks(c1, nb[0], nh[0]),
             }
             if self.backbone == "wavebfr":
-                modules.update({
-                    "encoder_lv3": blocks(c3, nb[2], nh[2]),
-                    "reduce_chan_lv3": nn.Conv2d(c3 * 2, c3, 1, bias=bias),
-                    "decoder_lv3": blocks(c3, nb[2], nh[2]),
-                    "refinement": blocks(c1, num_refinement_blocks, nh[0]),
-                })
+                modules.update(
+                    {
+                        "encoder_lv3": blocks(c3, nb[2], nh[2]),
+                        "reduce_chan_lv3": nn.Conv2d(c3 * 2, c3, 1, bias=bias),
+                        "decoder_lv3": blocks(c3, nb[2], nh[2]),
+                        "refinement": blocks(c1, num_refinement_blocks, nh[0]),
+                    }
+                )
             for name, module in modules.items():
                 setattr(self, f"{prefix}_{name}", module)
 
@@ -84,25 +115,38 @@ class MultiFrameWaveBFR(nn.Module):
             self.hf_project_out = nn.Conv2d(dim, dim * 3, 1, bias=bias)
         else:
             self.last_refinement = blocks(dim, num_refinement_blocks, nh[0])
-        self.output = nn.Sequential(nn.Conv2d(dim, out_channels, 3, padding=1, bias=bias))
+        self.output = nn.Sequential(
+            nn.Conv2d(dim, out_channels, 3, padding=1, bias=bias)
+        )
 
     def _accumulate(self, memory, current, reference):
         x = torch.cat((memory, current, reference), dim=1)
-        return memory + torch.sigmoid(self.feature_accumulator["gate"](x)) * self.feature_accumulator["delta"](x)
+        return memory + torch.sigmoid(
+            self.feature_accumulator["gate"](x)
+        ) * self.feature_accumulator["delta"](x)
 
     def _fuse_reference(self, reference, memory):
-        return reference + self.reference_fusion["body"](torch.cat((reference, memory), dim=1))
+        return reference + self.reference_fusion["body"](
+            torch.cat((reference, memory), dim=1)
+        )
 
     def fuse_frames(self, frames, frame_mask=None):
         """Fuse valid prefix frames; absent frames are near-zero after normalization."""
         if isinstance(frames, torch.Tensor):
             frames = frames.unbind(dim=1)
+
         if frame_mask is None:
-            frame_mask = torch.cat([
-                (frame.abs().mean(dim=(1, 2, 3)) > 0.02).unsqueeze(1)
-                for frame in frames
-            ], dim=1)
+            scores = torch.stack(
+                [frame.abs().mean(dim=(1, 2, 3)) for frame in frames],
+                dim=1,
+            )
+
+            # 평균 픽셀값 0.02~0.03 구간에서 마스크가 0에서 1로 전환되도록 설정
+            x = (scores - 0.02) * 100.0
+            frame_mask = torch.relu(x) - torch.relu(x - 1.0)
+
         mask = frame_mask.to(dtype=frames[0].dtype)
+
         features = [self.patch_embed(frame) for frame in frames]
 
         reference, reference_image = features[0], frames[0]
@@ -140,7 +184,9 @@ class MultiFrameWaveBFR(nn.Module):
         return x + layer("refinement")(d1) if self.backbone == "wavebfr" else d1
 
     def restore(self, feature, reference_image):
-        ll, lh, hl, hh = self.wavelet_transform(feature, rev=False).split(self.dim, dim=1)
+        ll, lh, hl, hh = self.wavelet_transform(feature, rev=False).split(
+            self.dim, dim=1
+        )
         hf = torch.cat((lh, hl, hh), dim=1)
         if self.backbone == "breeze":
             hf = self.hf_project_in(hf)
@@ -167,8 +213,18 @@ class MultiFrameWaveBFR(nn.Module):
 
     def load_single_frame_weights(self, checkpoint, map_location="cpu"):
         if isinstance(checkpoint, (str, Path)):
-            checkpoint = torch.load(checkpoint, map_location=map_location, weights_only=False)
-        for key in ("params_ema", "params", "state_dict", "model", "generator", "netG", "net_g"):
+            checkpoint = torch.load(
+                checkpoint, map_location=map_location, weights_only=False
+            )
+        for key in (
+            "params_ema",
+            "params",
+            "state_dict",
+            "model",
+            "generator",
+            "netG",
+            "net_g",
+        ):
             if isinstance(checkpoint, dict) and isinstance(checkpoint.get(key), dict):
                 checkpoint = checkpoint[key]
                 break
@@ -184,10 +240,17 @@ class MultiFrameWaveBFR(nn.Module):
             if key in own and own[key].shape == value.shape:
                 compatible[key] = value
             else:
-                skipped[key] = (tuple(value.shape), tuple(own[key].shape) if key in own else None)
+                skipped[key] = (
+                    tuple(value.shape),
+                    tuple(own[key].shape) if key in own else None,
+                )
         missing = self.load_state_dict(compatible, strict=False).missing_keys
-        return {"loaded": len(compatible), "skipped": skipped, "missing": missing,
-                "all_source_weights_loaded": not skipped}
+        return {
+            "loaded": len(compatible),
+            "skipped": skipped,
+            "missing": missing,
+            "all_source_weights_loaded": not skipped,
+        }
 
 
 MultiFrameWaveBFRBreeze = MultiFrameWaveBFR
