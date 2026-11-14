@@ -16,7 +16,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--pred_path",
     type=str,
-    default="results/wacv_3m_mf/kface_crop_patch_v2",
+    default="results/cv72/wacv_2m_mf_c300",
 )
 parser.add_argument(
     "--gt_path",

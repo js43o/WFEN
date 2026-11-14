@@ -1,38 +1,53 @@
-from data.base_dataset import BaseDataset, get_transform
-from data.image_folder import make_dataset
-from PIL import Image
+import os
+from glob import glob
+import numpy as np
+import cv2
+from torchvision.transforms.functional import normalize
+from basicsr.utils import img2tensor
+
+from data.base_dataset import BaseDataset
+
 
 class SingleDataset(BaseDataset):
-    """This dataset class can load a set of images specified by the path --dataroot /path/to/data.
-    """
-
     def __init__(self, opt):
-        """Initialize this dataset class.
-
-        Parameters:
-            opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
-        """
         BaseDataset.__init__(self, opt)
-        self.A_paths = sorted(make_dataset(opt.dataroot, opt.max_dataset_size))
-        input_nc = self.opt.output_nc 
-        self.transform = get_transform(opt, grayscale=(input_nc == 1))
+        self.img_size = opt.load_size
+        self.img_dir = opt.dataroot
+        self.lq_paths = []
+
+        self.mean = [0.5, 0.5, 0.5]
+        self.std = [0.5, 0.5, 0.5]
+
+        print("# Loading image paths...")
+
+        filenames = sorted(os.listdir(os.path.join(self.img_dir)))
+
+        for filename in filenames:
+            lq_path = os.path.join(self.img_dir, filename)
+            self.lq_paths.append(lq_path)
+
+        print("# The number of images:", len(self.lq_paths))
 
     def __getitem__(self, index):
-        """Return a data point and its metadata information.
+        lq_img = cv2.imread(self.lq_paths[index])
 
-        Parameters:
-            index - - a random integer for data indexing
+        h, w = lq_img.shape[:2]
+        if h != self.img_size or w != self.img_size:
+            lq_img = cv2.resize(
+                lq_img,
+                dsize=(self.img_size, self.img_size),
+                interpolation=cv2.INTER_LINEAR,
+            )
 
-        Returns a dictionary that contains A and A_paths
-            A(tensor) - - an image in one domain
-            A_paths(str) - - the path of the image
-        """
-        A_path = self.A_paths[index]
-        A_img = Image.open(A_path).convert('RGB')
-        A_img = A_img.resize((self.opt.load_size, self.opt.load_size), Image.BICUBIC)
-        A = self.transform(A_img)
-        return {'LR': A, 'LR_paths': A_path}
+        lq_img = lq_img.astype(np.float32) / 255.0
+
+        # BGR to RGB, HWC to CHW, numpy to tensor
+        lq_img = img2tensor(lq_img, bgr2rgb=True, float32=True)
+
+        # normalize
+        normalize(lq_img, self.mean, self.std, inplace=True)
+
+        return {"HR": lq_img, "LR": lq_img, "HR_paths": self.lq_paths[index]}
 
     def __len__(self):
-        """Return the total number of images in the dataset."""
-        return len(self.A_paths)
+        return len(self.lq_paths)

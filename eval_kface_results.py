@@ -4,19 +4,13 @@ import shutil
 import tempfile
 from pathlib import Path
 
-import face_alignment
 import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
 from facenet_pytorch import InceptionResnetV1
 from PIL import Image
-from pyiqa import create_metric
 from tqdm import tqdm
-from torchvision.transforms.functional import to_tensor
-
-from helpers.arcface.models import resnet_face18
-from helpers.utils import process_arcface_input
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
 SESSION = "S001"
@@ -48,6 +42,12 @@ def parse_args():
         "--pred_dir", type=str, default="results/wacv_ver_mf/kface_crop_patch_v2"
     )
     parser.add_argument("--hq_dir", type=str, default="results/multiframe_kface/hr")
+    parser.add_argument(
+        "--eval_mode",
+        choices=("quality", "recognition", "both"),
+        default="both",
+        help="Evaluate image quality, face recognition, or both (default: both).",
+    )
     parser.add_argument(
         "--arcface_weights",
         type=str,
@@ -186,6 +186,8 @@ def prepare_quality_pairs(pred_dir, hq_dir, match_only=False):
 
 
 def load_quality_tensor(path, device):
+    from torchvision.transforms.functional import to_tensor
+
     return (
         to_tensor(
             Image.open(path)
@@ -204,6 +206,12 @@ def compute_image_quality_metrics(
     arcface_weights,
     match_only=False,
 ):
+    # Load quality-only dependencies only when requested.
+    import face_alignment
+    from pyiqa import create_metric
+    from helpers.arcface.models import resnet_face18
+    from helpers.utils import process_arcface_input
+
     pairs = prepare_quality_pairs(
         pred_dir,
         hq_dir,
@@ -521,7 +529,7 @@ def compute_recognition_metrics(
     }
 
 
-def print_results(quality, recognition):
+def print_quality_results(quality):
     print("\n" + "=" * 70)
     print("IMAGE QUALITY")
     print("=" * 70)
@@ -539,6 +547,8 @@ def print_results(quality, recognition):
     )
     print(f"VIF           : {quality['VIF']:.6f}")
 
+
+def print_recognition_results(recognition):
     print("\n" + "=" * 70)
     print("FACE RECOGNITION")
     print("=" * 70)
@@ -574,28 +584,32 @@ def main():
     print(f"Prediction dir : {args.pred_dir}")
     print(f"HQ dir         : {args.hq_dir}")
     print(f"Device         : {device}")
-    print(f"Match only     : {args.match_only}")
+    print(f"Evaluation mode: {args.eval_mode}")
+    if args.eval_mode in ("quality", "both"):
+        print(f"Match only     : {args.match_only}")
     print("=" * 70)
 
-    quality = compute_image_quality_metrics(
-        pred_dir=args.pred_dir,
-        hq_dir=args.hq_dir,
-        device=device,
-        arcface_weights=args.arcface_weights,
-        match_only=args.match_only,
-    )
+    if args.eval_mode in ("quality", "both"):
+        quality = compute_image_quality_metrics(
+            pred_dir=args.pred_dir,
+            hq_dir=args.hq_dir,
+            device=device,
+            arcface_weights=args.arcface_weights,
+            match_only=args.match_only,
+        )
+        print_quality_results(quality)
 
-    recognition = compute_recognition_metrics(
-        pred_dir=args.pred_dir,
-        hq_dir=args.hq_dir,
-        device=device,
-        batch_size=args.batch_size,
-        gallery_light=args.gallery_light,
-        gallery_expression=args.gallery_expression,
-        gallery_camera=args.gallery_camera,
-    )
-
-    print_results(quality, recognition)
+    if args.eval_mode in ("recognition", "both"):
+        recognition = compute_recognition_metrics(
+            pred_dir=args.pred_dir,
+            hq_dir=args.hq_dir,
+            device=device,
+            batch_size=args.batch_size,
+            gallery_light=args.gallery_light,
+            gallery_expression=args.gallery_expression,
+            gallery_camera=args.gallery_camera,
+        )
+        print_recognition_results(recognition)
 
 
 if __name__ == "__main__":

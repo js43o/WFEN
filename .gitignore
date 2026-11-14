@@ -1,9 +1,9 @@
 pretrain_models/*
 check_points/*
 output/*
-results*
-temp*
+results/*
 build/*
+temp*
 
 __pycache__/*
 *.pyc

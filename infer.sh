@@ -3,6 +3,6 @@
 # Test WFEN on Helen and CelebA test dataset
 # ================================================================================
 
-python infer.py --gpus 1 --model wavebfr --name 14-6-4_wo-pix-l1 \
-    --load_size 112 --pretrain_model_path check_points/14-6-4_wo-pix-l1/latest_net_G.pth \
-    --test_img_path input --save_as_dir output
+python infer.py --gpus 1 --model wavebfr --name wacv_ver \
+    --load_size 112 --pretrain_model_path check_points/wacv_ver/latest_net_G.pth \
+    --test_img_path results/multiframe_kface/lr_reference --save_as_dir results/wacv_ver/kface_lr_reference

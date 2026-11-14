@@ -1,0 +1,30 @@
+# WACV-6M 50% sparse pruning pilot for CV72, real-data calibration.
+# Place pruned ONNX at /work/wacv_6m_pruned50_sim.onnx.
+name: wacv_6m_pruned50_c300
+work_dir: ./out
+model_path: /work/wacv_6m_pruned50_sim.onnx
+
+data_prepare:
+  dra_data_1:
+    in_path: /work/calibration_300/
+    in_file_ext: jpg
+    out_shape: 1,3,112,1120
+    out_data_format: uint8
+    transforms:
+      - class: GenImageList
+        arguments:
+          color: RGB
+
+input_nodes:
+  input:
+    data_prepare: dra_data_1
+    mean: 127.5
+    std: 127.5
+
+output_nodes:
+  output:
+    data_format: fp32
+
+cnngen_convert:
+  dra_option:
+    strategy: auto

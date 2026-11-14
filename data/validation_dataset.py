@@ -70,7 +70,5 @@ class ValidationDataset(BaseDataset):
 
         return {"HR": gt_img, "LR": lq_img, "HR_paths": self.gt_paths[index]}
 
-    def __len__(
-        self,
-    ):
+    def __len__(self):
         return len(self.gt_paths)
