@@ -203,7 +203,8 @@ class MultiFrameKFaceDataset(BaseDataset):
         interpolation = self._random_interpolation()
         num_frames = random.randint(self.min_frames, self.max_frames)
 
-        samples = self._sample_auxiliary(reference, num_frames - 1) + [reference]
+        samples = self._sample_auxiliary(reference, num_frames - 1)
+        samples.insert(num_frames // 2, reference)
         sizes = self._sample_sizes(num_frames)
 
         reference_image = self._read_image(reference["path"], interpolation)
