@@ -191,8 +191,9 @@ class MultiFrameWaveBFRModel(BaseModel):
         counts = self.img_LR_mask.sum(1)
         if (counts < 1).any():
             raise ValueError("Input requires at least one valid frame")
-        batch = torch.arange(self.img_LR_seq.shape[0], device=self.img_LR_seq.device)
-        self.img_LR = self.img_LR_seq[batch, counts - 1]
+        
+        self.img_LR = self.img_LR_seq[:, 0]
+        
         self.num_frames = data.get("num_frames", counts)
         self.img_lf_HR, self.img_hf_HR = self._bands(
             self.img_HR, self.wavelet_transform

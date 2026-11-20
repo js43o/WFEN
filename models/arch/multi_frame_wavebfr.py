@@ -150,14 +150,10 @@ class MultiFrameWaveBFR(nn.Module):
         features = [self.patch_embed(frame) for frame in frames]
 
         reference, reference_image = features[0], frames[0]
-        for i in range(1, len(frames)):
-            valid = mask[:, i].reshape(-1, 1, 1, 1)
-            reference = reference + valid * (features[i] - reference)
-            reference_image = reference_image + valid * (frames[i] - reference_image)
 
         memory = features[0]
-        for i in range(1, len(frames) - 1):
-            active = (mask[:, i] * mask[:, i + 1]).reshape(-1, 1, 1, 1)
+        for i in range(1, len(frames)):
+            active = mask[:, i].reshape(-1, 1, 1, 1)
             updated = self._accumulate(memory, features[i], reference)
             memory = memory + active * (updated - memory)
 
