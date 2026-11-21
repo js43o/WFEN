@@ -11,6 +11,7 @@ from torchvision.transforms.functional import normalize
 from basicsr.data import degradations
 from basicsr.utils import img2tensor
 from data.base_dataset import BaseDataset
+from utils.ediffiqa_selector import EDifFIQATSelector
 
 SESSION = "S001"
 LIGHT_CLASSES = ["L1", "L2", "L3", "L4", "L8", "L9", "L10", "L12", "L13"]
@@ -41,6 +42,10 @@ class MultiFrameKFaceDataset(BaseDataset):
         self.size_jitter = getattr(opt, "lr_size_jitter_ratio", 0.25)
 
         self.allow_duplicate_frames = getattr(opt, "allow_duplicate_frames", False)
+        self.ediffiqa_onnx_path = getattr(
+            opt, "ediffiqa_onnx_path", "pretrain_models/ediffiqa_tiny_jun2024.onnx"
+        )
+        self._fiqa_selector = None  # Lazy init for each DataLoader worker.
 
         self.blur_kernel_size = opt.blur_kernel_size
         self.kernel_list = opt.kernel_list
@@ -198,6 +203,11 @@ class MultiFrameKFaceDataset(BaseDataset):
         )
         return np.clip(image, 0, 1)
 
+    def _get_fiqa_selector(self):
+        if self._fiqa_selector is None:
+            self._fiqa_selector = EDifFIQATSelector(self.ediffiqa_onnx_path)
+        return self._fiqa_selector
+
     def __getitem__(self, index):
         reference = self.reference_samples[index]
         interpolation = self._random_interpolation()
@@ -205,13 +215,6 @@ class MultiFrameKFaceDataset(BaseDataset):
 
         samples = self._sample_auxiliary(reference, num_frames - 1) + [reference]
         sizes = self._sample_sizes(num_frames)
-
-        reference_image = self._read_image(reference["path"], interpolation)
-        reference_image = cv2.resize(
-            reference_image,
-            (self.img_size, self.img_size),
-            interpolation=interpolation,
-        )
 
         lr = torch.zeros(self.max_frames, 3, self.img_size, self.img_size)
         mask = torch.zeros(self.max_frames, dtype=torch.bool)
@@ -235,13 +238,26 @@ class MultiFrameKFaceDataset(BaseDataset):
             expressions[i] = sample["expression"]
             cameras[i] = sample["camera"]
 
+        # Select highest-quality *degraded LR* frame, never the HR source.
+        reference_idx, fiqa_scores = self._get_fiqa_selector().select_sequence(lr, mask)
+        selected_sample = samples[reference_idx]
+        reference_image = self._read_image(selected_sample["path"], interpolation)
+        reference_image = cv2.resize(
+            reference_image,
+            (self.img_size, self.img_size),
+            interpolation=interpolation,
+        )
+        assert paths[reference_idx] == selected_sample["path"]
+
         return {
             "HR": self._to_tensor(reference_image),
             "LR": lr,
             "LR_mask": mask,
             "num_frames": torch.tensor(num_frames),
             "frame_sizes": frame_sizes,
-            "HR_paths": reference["path"],
+            "HR_paths": selected_sample["path"],
+            "reference_idx": torch.tensor(reference_idx, dtype=torch.long),
+            "fiqa_scores": fiqa_scores,
             "LR_paths": paths,
             "lights": lights,
             "expressions": expressions,

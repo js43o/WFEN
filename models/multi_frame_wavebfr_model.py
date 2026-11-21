@@ -44,6 +44,10 @@ class MultiFrameWaveBFRModel(BaseModel):
         parser.add_argument("--wavebfr_heads", type=int, nargs="+", default=None)
         parser.add_argument("--wavebfr_num_refinement_blocks", type=int, default=2)
         parser.add_argument("--visualize_all_lr", action="store_true")
+        parser.add_argument(
+            "--ediffiqa_onnx_path", type=str,
+            default="pretrain_models/ediffiqa_tiny_jun2024.onnx"
+        )
         for name, default in (
             ("min_frames", 5),
             ("max_frames", 10),
@@ -183,6 +187,9 @@ class MultiFrameWaveBFRModel(BaseModel):
         self.img_LR_seq = data["LR"].to(device, non_blocking=True)
         self.img_LR_mask = data["LR_mask"].to(device, non_blocking=True).bool()
         self.img_HR = data["HR"].to(device, non_blocking=True)
+        self.reference_indices = data["reference_idx"].to(
+            device, non_blocking=True
+        ).long()
         if (
             self.img_LR_seq.ndim != 5
             or self.img_LR_seq.shape[:2] != self.img_LR_mask.shape
@@ -192,14 +199,22 @@ class MultiFrameWaveBFRModel(BaseModel):
         if (counts < 1).any():
             raise ValueError("Input requires at least one valid frame")
         batch = torch.arange(self.img_LR_seq.shape[0], device=self.img_LR_seq.device)
-        self.img_LR = self.img_LR_seq[batch, counts - 1]
+        if (self.reference_indices < 0).any() or (
+            self.reference_indices >= counts
+        ).any():
+            raise ValueError("Reference index points outside valid frames")
+        self.img_LR = self.img_LR_seq[batch, self.reference_indices]
         self.num_frames = data.get("num_frames", counts)
         self.img_lf_HR, self.img_hf_HR = self._bands(
             self.img_HR, self.wavelet_transform
         )
 
     def forward(self):
-        self.img_SR = self.netG(self.img_LR_seq, frame_mask=self.img_LR_mask)
+        self.img_SR = self.netG(
+            self.img_LR_seq,
+            frame_mask=self.img_LR_mask,
+            reference_indices=self.reference_indices,
+        )
         self.img_lf_SR, self.img_hf_SR = self._bands(
             self.img_SR, self.wavelet_transform
         )

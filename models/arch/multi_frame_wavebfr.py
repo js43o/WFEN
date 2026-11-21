@@ -130,7 +130,7 @@ class MultiFrameWaveBFR(nn.Module):
             torch.cat((reference, memory), dim=1)
         )
 
-    def fuse_frames(self, frames, frame_mask=None):
+    def fuse_frames(self, frames, frame_mask=None, reference_indices=None):
         """Fuse valid prefix frames; absent frames are near-zero after normalization."""
         if isinstance(frames, torch.Tensor):
             frames = frames.unbind(dim=1)
@@ -149,15 +149,23 @@ class MultiFrameWaveBFR(nn.Module):
 
         features = [self.patch_embed(frame) for frame in frames]
 
+        if reference_indices is None:
+            raise ValueError(
+                "Dynamic-reference model requires reference_indices from eDifFIQA-T"
+            )
+        reference_indices = reference_indices.to(features[0].device).long().view(-1)
+        if reference_indices.numel() != features[0].shape[0]:
+            raise ValueError("Expected reference_indices of shape [B]")
+
         reference, reference_image = features[0], frames[0]
         for i in range(1, len(frames)):
-            valid = mask[:, i].reshape(-1, 1, 1, 1)
-            reference = reference + valid * (features[i] - reference)
-            reference_image = reference_image + valid * (frames[i] - reference_image)
+            selected = (reference_indices == i).view(-1, 1, 1, 1)
+            reference = torch.where(selected, features[i], reference)
+            reference_image = torch.where(selected, frames[i], reference_image)
 
         memory = features[0]
-        for i in range(1, len(frames) - 1):
-            active = (mask[:, i] * mask[:, i + 1]).reshape(-1, 1, 1, 1)
+        for i in range(1, len(frames)):
+            active = mask[:, i].reshape(-1, 1, 1, 1)
             updated = self._accumulate(memory, features[i], reference)
             memory = memory + active * (updated - memory)
 
@@ -198,17 +206,21 @@ class MultiFrameWaveBFR(nn.Module):
             x = self.last_refinement(x)
         return self.output(x) + reference_image
 
-    def forward(self, inp_img, frame_mask=None):
+    def forward(self, inp_img, frame_mask=None, reference_indices=None):
         if inp_img.ndim == 4:
             return self.restore(self.patch_embed(inp_img), inp_img)
         if inp_img.ndim != 5:
             raise ValueError("Expected [B,3,H,W] or [B,T,3,H,W]")
-        feature, reference = self.fuse_frames(inp_img.unbind(dim=1), frame_mask)
+        feature, reference = self.fuse_frames(
+            inp_img.unbind(dim=1), frame_mask, reference_indices
+        )
         return self.restore(feature, reference)
 
-    def forward_strip(self, strip):
+    def forward_strip(self, strip, reference_indices=None):
         """EVB input: normalized RGB [B,3,112,1120], padded with neutral gray."""
-        feature, reference = self.fuse_frames(strip.split(112, dim=3))
+        feature, reference = self.fuse_frames(
+            strip.split(112, dim=3), reference_indices=reference_indices
+        )
         return self.restore(feature, reference)
 
     def load_single_frame_weights(self, checkpoint, map_location="cpu"):
